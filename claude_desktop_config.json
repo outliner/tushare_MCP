@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "tushare": {
+      "command": "python",
+      "args": [
+        "G:\\AICode\\tocker-mcp\\tushare_MCP\\server.py"
+      ],
+      "env": {
+        "TUSHARE_TOKEN": "your_token_here"
+      }
+    }
+  }
+}
+
