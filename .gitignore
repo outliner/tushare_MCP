@@ -34,7 +34,11 @@ ENV/
 
 # Tushare MCP specific
 .tushare_mcp/
+.cache/
 
 # OS
 .DS_Store
 Thumbs.db 
+./.功能说明
+./.实现方案确认.md
+./.数据库缓存方案设计.md

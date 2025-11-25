@@ -27,7 +27,19 @@
 - 支持行业关键词搜索（如："新能源"、"科技"）
 - 返回匹配度最高的股票列表
 
-### 3. 财务报表分析
+### 3. A股日线行情查询
+- 支持通过股票代码查询（如：000001.SZ）
+- 支持多个股票同时查询（逗号分隔，如：000001.SZ,600000.SH）
+- 支持按交易日期查询（YYYYMMDD格式，如：20240101）
+- 支持按日期范围查询（start_date和end_date）
+- 返回数据包括：
+  - 开盘价、最高价、最低价、收盘价
+  - 昨收价、涨跌额、涨跌幅
+  - 成交量（手）、成交额（千元）
+- 数据说明：交易日每天15点～16点之间入库，本接口是未复权行情，停牌期间不提供数据
+- 支持历史数据查询和最新数据展示
+
+### 4. 财务报表分析
 - 支持查询上市公司利润表数据
 - 灵活的时间范围查询（年报、季报、半年报）
 - 多种报表类型支持（合并报表、母公司报表等）
@@ -38,7 +50,22 @@
   - 利润指标
 - 支持历史数据对比分析
 
-### 4. 安全的Token管理
+### 5. 国际主要指数查询
+- 支持查询20+个国际主要指数行情数据
+- 支持通过指数代码或名称查询（如：XIN9、富时中国A50指数）
+- 支持日期范围查询
+- 主要支持的指数包括：
+  - 富时中国A50指数 (XIN9)
+  - 恒生指数 (HSI)、恒生科技指数 (HKTECH)
+  - 道琼斯工业指数 (DJI)
+  - 标普500指数 (SPX)
+  - 纳斯达克指数 (IXIC)
+  - 日经225指数 (N225)
+  - 德国DAX指数 (GDAXI)
+  - 等20多个国际主要指数
+- 返回数据包含：收盘点位、涨跌幅、振幅等关键指标
+
+### 6. 安全的Token管理
 - 交互式Token配置流程
 - 本地安全存储（加密保存）
 - Token有效性自动验证
@@ -51,6 +78,8 @@
    "帮我查找所有新能源相关的股票"
    "查询比亚迪的基本信息"
    "获取平安银行2023年的利润表"
+   "查询000001.SZ的日线行情"
+   "获取平安银行最近30天的日线数据"
    ```
 
 2. **财务分析**
@@ -71,6 +100,14 @@
    "查询平安银行2023年第一季度的利润表"
    "获取比亚迪的母公司报表"
    "查看茅台近5年的年度利润表"
+   ```
+
+5. **国际指数查询**
+   ```
+   "查询富时中国A50指数"
+   "获取道琼斯工业指数最近的数据"
+   "查看标普500指数2024年的行情"
+   "搜索所有可用的国际指数"
    ```
 
 ## 🛠️ 技术特点
@@ -293,13 +330,34 @@ search_stocks(keyword="")
 # 示例：search_stocks(keyword="新能源")
 ```
 
-3. **利润表查询**
+3. **A股日线行情查询**
+```python
+get_stock_daily(ts_code="", trade_date="", start_date="", end_date="")
+# 示例：get_stock_daily(ts_code="000001.SZ")  # 查询单个股票
+# 示例：get_stock_daily(ts_code="000001.SZ,600000.SH")  # 查询多个股票
+# 示例：get_stock_daily(trade_date="20240101")  # 查询指定日期的所有股票
+# 示例：get_stock_daily(ts_code="000001.SZ", start_date="20240101", end_date="20241231")  # 查询日期范围
+```
+
+4. **利润表查询**
 ```python
 get_income_statement(ts_code="", start_date="", end_date="", report_type="1")
 # 示例：get_income_statement(ts_code="000001.SZ", start_date="20230101", end_date="20231231")
 ```
 
-4. **Token管理**
+5. **国际指数查询**
+```python
+get_global_index(index_code="", index_name="", trade_date="", start_date="", end_date="")
+# 示例：get_global_index(index_name="富时中国A50指数")
+# 示例：get_global_index(index_code="XIN9", trade_date="20241201")  # 查询指定日期
+# 示例：get_global_index(index_code="XIN9", start_date="20240101", end_date="20241231")  # 查询日期范围
+
+search_global_indexes(keyword="")
+# 示例：search_global_indexes(keyword="中国")  # 搜索包含"中国"的指数
+# 示例：search_global_indexes()  # 显示所有可用指数
+```
+
+6. **Token管理**
 ```python
 setup_tushare_token(token="")
 check_token_status()
