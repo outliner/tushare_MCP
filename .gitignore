@@ -39,6 +39,13 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db 
-./.功能说明
-./.实现方案确认.md
-./.数据库缓存方案设计.md
+
+# Documentation files
+功能说明
+实现方案确认.md
+工具功能列表.md
+数据库缓存方案设计.md
+概念板块功能使用说明.md
+概念板块功能测试报告.md
+相对强度Alpha模型策略分析.md
+缓存策略优化方案.md
