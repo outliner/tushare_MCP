@@ -1,7 +1,14 @@
 """
-分析东财热门概念板块20251203的各项数据并保存到本地文件
+分析东财热门概念板块的各项数据并保存到本地文件
+支持指定日期，包含5个任务：
+1. 量价异动分析
+2. Alpha收益排行
+3. 资金流入情况
+4. Alpha增长速度排行
+5. 涨跌停股票数据
 """
 import sys
+import argparse
 from pathlib import Path
 import time
 import json
@@ -24,7 +31,19 @@ from tools.alpha_strategy_analyzer import (
     calculate_alpha_rank_velocity,
     format_alpha_analysis
 )
+from tools.stock_tools import format_limit_list_data, format_large_number
 from cache.cache_manager import cache_manager
+from utils.common import format_date
+
+# 解析命令行参数
+parser = argparse.ArgumentParser(description='分析东财热门概念板块数据')
+parser.add_argument(
+    '--date', 
+    type=str, 
+    default=None,
+    help='分析日期，格式：YYYYMMDD（如：20251204），默认为今天'
+)
+args = parser.parse_args()
 
 # 初始化
 init_env_file()
@@ -36,8 +55,13 @@ else:
     print("⚠️  未找到 Tushare token")
     sys.exit(1)
 
-# 分析日期
-end_date = "20251203"
+# 确定分析日期
+if args.date:
+    end_date = args.date
+else:
+    # 默认使用今天
+    end_date = datetime.now().strftime("%Y%m%d")
+
 print(f"分析日期: {end_date}\n")
 
 # 创建doc文件夹
@@ -54,7 +78,8 @@ def save_result_to_file(content: str, task_name: str, task_number: int = None):
         1: "量价异动分析",
         2: "Alpha收益排行",
         3: "资金流入情况",
-        4: "Alpha增长速度排行"
+        4: "Alpha增长速度排行",
+        5: "涨跌停股票数据"
     }
     
     if task_number and task_number in task_descriptions:
@@ -380,6 +405,127 @@ except Exception as e:
     error_msg = f"任务4执行失败: {str(e)}\n详细信息:\n{traceback.format_exc()}"
     print(error_msg)
     save_result_to_file(error_msg, "任务4：东财热门概念板块Alpha增长速度排行（错误）", task_number=4)
+
+# 任务5：获取涨跌停股票数据
+print("=" * 80)
+print("任务5：获取涨跌停股票数据")
+print("=" * 80)
+try:
+    pro = ts.pro_api()
+    
+    # 获取涨跌停数据
+    df = pro.limit_list_d(trade_date=end_date)
+    
+    if df.empty:
+        result_content = f"未找到{end_date}的涨跌停股票数据\n\n提示：\n- 请确认该日期是否为交易日\n- 该日期是否有股票涨跌停或炸板\n- 注意：本接口不提供ST股票的统计"
+        save_result_to_file(result_content, "任务5：涨跌停股票数据（错误）", task_number=5)
+        print("⚠️ 未找到涨跌停数据\n")
+    else:
+        # 格式化输出
+        result_text = []
+        result_text.append(f"📊 涨跌停股票数据")
+        result_text.append(f"分析日期: {end_date}")
+        result_text.append("")
+        
+        # 统计信息
+        if 'limit' in df.columns:
+            limit_stats = df['limit'].value_counts()
+            result_text.append("📊 统计信息：")
+            result_text.append("-" * 120)
+            limit_type_map = {'U': '涨停', 'D': '跌停', 'Z': '炸板'}
+            for limit_val, count in limit_stats.items():
+                type_name = limit_type_map.get(str(limit_val), str(limit_val))
+                result_text.append(f"  - {type_name}: {count} 只")
+            result_text.append("")
+        
+        # 按连板数排序（降序），然后按封单金额排序（降序）
+        if 'limit_times' in df.columns:
+            df = df.sort_values(['limit_times', 'fd_amount'], ascending=[False, False], na_position='last')
+        elif 'fd_amount' in df.columns:
+            df = df.sort_values('fd_amount', ascending=False, na_position='last')
+        
+        result_text.append(f"共找到 {len(df)} 条涨跌停记录，涉及 {len(df['ts_code'].unique()) if 'ts_code' in df.columns else len(df)} 只股票")
+        result_text.append("")
+        result_text.append(f"{'交易日期':<12} {'股票代码':<15} {'股票名称':<20} {'行业':<15} {'类型':<8} {'收盘价':<10} {'涨跌幅':<10} {'成交额(元)':<18} {'封单金额(元)':<18} {'首次封板':<12} {'最后封板':<12} {'炸板次数':<10} {'连板数':<8} {'涨停统计':<15}")
+        result_text.append("-" * 200)
+        
+        # 保存所有数据，不截断
+        for _, row in df.iterrows():
+            trade_date_str = format_date(str(row.get('trade_date', '-'))) if pd.notna(row.get('trade_date')) else "-"
+            code = str(row.get('ts_code', '-'))[:13]
+            name = str(row.get('name', '-'))[:18]
+            industry = str(row.get('industry', '-'))[:13]
+            limit_val = str(row.get('limit', '-'))
+            limit_type_map = {'U': '涨停', 'D': '跌停', 'Z': '炸板'}
+            limit_type_name = limit_type_map.get(limit_val, limit_val)
+            close = f"{row.get('close', 0):.2f}" if pd.notna(row.get('close')) else "-"
+            pct_chg = f"{row.get('pct_chg', 0):+.2f}%" if pd.notna(row.get('pct_chg')) else "-"
+            amount = format_large_number(row.get('amount', 0)) if pd.notna(row.get('amount')) else "-"
+            fd_amount = format_large_number(row.get('fd_amount', 0)) if pd.notna(row.get('fd_amount')) else "-"
+            first_time = str(row.get('first_time', '-'))[:10] if pd.notna(row.get('first_time')) else "-"
+            last_time = str(row.get('last_time', '-'))[:10] if pd.notna(row.get('last_time')) else "-"
+            open_times = str(int(row.get('open_times', 0))) if pd.notna(row.get('open_times')) else "-"
+            limit_times = str(int(row.get('limit_times', 0))) if pd.notna(row.get('limit_times')) else "-"
+            up_stat = str(row.get('up_stat', '-'))[:13] if pd.notna(row.get('up_stat')) else "-"
+            
+            result_text.append(f"{trade_date_str:<12} {code:<15} {name:<20} {industry:<15} {limit_type_name:<8} {close:<10} {pct_chg:<10} {amount:<18} {fd_amount:<18} {first_time:<12} {last_time:<12} {open_times:<10} {limit_times:<8} {up_stat:<15}")
+        
+        result_text.append("")
+        result_text.append("📊 详细统计：")
+        result_text.append("-" * 120)
+        
+        if 'ts_code' in df.columns:
+            result_text.append(f"涉及股票数量: {len(df['ts_code'].unique())} 只")
+        
+        if 'trade_date' in df.columns:
+            result_text.append(f"涉及交易日期: {len(df['trade_date'].unique())} 个")
+        
+        # 计算总成交额
+        if 'amount' in df.columns:
+            total_amount = df['amount'].sum()
+            result_text.append(f"总成交额: {format_large_number(total_amount)} 元")
+        
+        # 计算总封单金额
+        if 'fd_amount' in df.columns:
+            total_fd_amount = df['fd_amount'].sum()
+            result_text.append(f"总封单金额: {format_large_number(total_fd_amount)} 元")
+        
+        # 统计连板情况
+        if 'limit_times' in df.columns:
+            max_limit_times = df['limit_times'].max()
+            if pd.notna(max_limit_times):
+                result_text.append(f"最高连板数: {int(max_limit_times)} 板")
+        
+        # 统计炸板情况
+        if 'open_times' in df.columns:
+            total_open_times = df['open_times'].sum()
+            result_text.append(f"总炸板次数: {int(total_open_times)} 次")
+            avg_open_times = df['open_times'].mean()
+            if pd.notna(avg_open_times):
+                result_text.append(f"平均炸板次数: {avg_open_times:.2f} 次")
+        
+        result_text.append("")
+        result_text.append("📝 说明：")
+        result_text.append("  - 数据来源：Tushare limit_list_d接口")
+        result_text.append("  - 数据历史：2020年至今（不提供ST股票的统计）")
+        result_text.append("  - 类型说明：U=涨停，D=跌停，Z=炸板")
+        result_text.append("  - 封单金额：以涨停价买入挂单的资金总量（跌停无此数据）")
+        result_text.append("  - 首次封板时间：股票首次达到涨停价的时间（跌停无此数据）")
+        result_text.append("  - 炸板次数：涨停后开板的次数（跌停为开板次数）")
+        result_text.append("  - 连板数：个股连续封板数量")
+        result_text.append("  - 涨停统计：格式为N/T，表示T天内有N次涨停")
+        result_text.append("  - 权限要求：5000积分（每分钟200次，每天总量1万次），8000积分以上（每分钟500次，每天总量不限制）")
+        result_text.append("  - 限量：单次最大可获取2500条数据，可通过日期或股票循环提取")
+        
+        result_content = "\n".join(result_text)
+        save_result_to_file(result_content, "任务5：涨跌停股票数据", task_number=5)
+        print("✓ 任务5完成\n")
+        
+except Exception as e:
+    import traceback
+    error_msg = f"任务5执行失败: {str(e)}\n详细信息:\n{traceback.format_exc()}"
+    print(error_msg)
+    save_result_to_file(error_msg, "任务5：涨跌停股票数据（错误）", task_number=5)
 
 print("=" * 80)
 print("所有任务完成！")
