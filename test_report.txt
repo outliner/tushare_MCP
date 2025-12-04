@@ -1,0 +1,201 @@
+================================================================================
+MCP工具测试报告
+测试时间: 2025-12-03 20:03:46
+================================================================================
+
+总测试数: 47
+成功: 0 (0.0%)
+失败: 0 (0.0%)
+跳过: 47 (100.0%)
+
+
+详细测试结果:
+--------------------------------------------------------------------------------
+✗ analyze_sector_alpha_strategy - 分析单个板块Alpha
+  参数: {'sector_code': '801080.SI', 'benchmark_code': '000300.SH', 'end_date': '20251203'}
+  结果: 工具 analyze_sector_alpha_strategy 未找到
+
+✗ rank_sectors_by_alpha - 申万一级行业Alpha排名
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203', 'top_n': 5}
+  结果: 工具 rank_sectors_by_alpha 未找到
+
+✗ rank_l2_sectors_by_alpha - 申万二级行业Alpha排名
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203', 'top_n': 10}
+  结果: 工具 rank_l2_sectors_by_alpha 未找到
+
+✗ rank_l1_sectors_alpha_full - 申万一级行业Alpha完整排行
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203'}
+  结果: 工具 rank_l1_sectors_alpha_full 未找到
+
+✗ rank_l1_sectors_alpha_velocity - 申万一级行业Alpha排名上升速度
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203'}
+  结果: 工具 rank_l1_sectors_alpha_velocity 未找到
+
+✗ rank_l2_sectors_alpha_velocity - 申万二级行业Alpha排名上升速度
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203', 'top_n': 10}
+  结果: 工具 rank_l2_sectors_alpha_velocity 未找到
+
+✗ analyze_concept_alpha_strategy - 分析概念板块Alpha
+  参数: {'concept_code': 'BK1184.DC', 'benchmark_code': '000300.SH', 'end_date': '20251203'}
+  结果: 工具 analyze_concept_alpha_strategy 未找到
+
+✗ rank_concepts_by_alpha - 概念板块Alpha排名
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203', 'top_n': 10}
+  结果: 工具 rank_concepts_by_alpha 未找到
+
+✗ rank_concepts_alpha_velocity - 概念板块Alpha排名上升速度
+  参数: {'benchmark_code': '000300.SH', 'end_date': '20251203'}
+  结果: 工具 rank_concepts_alpha_velocity 未找到
+
+✗ get_stock_basic_info - 获取股票基本信息
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_stock_basic_info 未找到
+
+✗ search_stocks - 搜索股票
+  参数: {'keyword': '平安'}
+  结果: 工具 search_stocks 未找到
+
+✗ get_stock_daily - 获取A股日线行情
+  参数: {'ts_code': '000001.SZ', 'trade_date': '20251203'}
+  结果: 工具 get_stock_daily 未找到
+
+✗ get_stock_weekly - 获取A股周线行情
+  参数: {'ts_code': '000001.SZ', 'trade_date': '20251203'}
+  结果: 工具 get_stock_weekly 未找到
+
+✗ get_etf_daily - 获取ETF日线行情
+  参数: {'ts_code': '510300.SH', 'trade_date': '20251203'}
+  结果: 工具 get_etf_daily 未找到
+
+✗ get_index_daily - 获取A股指数日线行情
+  参数: {'ts_code': '000300.SH', 'trade_date': '20251203'}
+  结果: 工具 get_index_daily 未找到
+
+✗ get_share_float - 获取限售股解禁数据
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_share_float 未找到
+
+✗ get_stock_repurchase - 获取股票回购数据
+  参数: {}
+  结果: 工具 get_stock_repurchase 未找到
+
+✗ get_pledge_detail - 获取股权质押明细
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_pledge_detail 未找到
+
+✗ get_block_trade - 获取大宗交易数据
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_block_trade 未找到
+
+✗ scan_announcement_signals - 扫描公告信号
+  参数: {'check_date': '20251203'}
+  结果: 工具 scan_announcement_signals 未找到
+
+✗ get_stock_holder_trade - 获取股东增减持数据
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_stock_holder_trade 未找到
+
+✗ get_stock_holder_number - 获取股东户数数据
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_stock_holder_number 未找到
+
+✗ get_stock_survey - 获取机构调研数据
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_stock_survey 未找到
+
+✗ get_cyq_perf - 获取筹码分析数据
+  参数: {'ts_code': '000001.SZ', 'trade_date': '20251203'}
+  结果: 工具 get_cyq_perf 未找到
+
+✗ get_margin - 获取融资融券汇总数据
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_margin 未找到
+
+✗ get_margin_detail - 获取融资融券明细数据
+  参数: {'ts_code': '000001.SZ', 'trade_date': '20251203'}
+  结果: 工具 get_margin_detail 未找到
+
+✗ get_stock_moneyflow_dc - 获取个股资金流向
+  参数: {'ts_code': '000001.SZ', 'trade_date': '20251203'}
+  结果: 工具 get_stock_moneyflow_dc 未找到
+
+✗ get_daily_basic - 获取每日指标数据
+  参数: {'ts_code': '000001.SZ', 'trade_date': '20251203'}
+  结果: 工具 get_daily_basic 未找到
+
+✗ get_top_list - 获取龙虎榜每日明细
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_top_list 未找到
+
+✗ get_top_inst - 获取龙虎榜机构明细
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_top_inst 未找到
+
+✗ get_global_index - 获取国际指数行情
+  参数: {'index_code': 'DJI', 'trade_date': '20251203'}
+  结果: 工具 get_global_index 未找到
+
+✗ search_global_indexes - 搜索国际指数
+  参数: {'keyword': '道琼斯'}
+  结果: 工具 search_global_indexes 未找到
+
+✗ get_sw_industry_daily - 获取申万行业指数日线
+  参数: {'level': 'L1', 'trade_date': '20251203'}
+  结果: 工具 get_sw_industry_daily 未找到
+
+✗ get_industry_index_codes - 获取申万行业分类代码
+  参数: {'level': 'L1'}
+  结果: 工具 get_industry_index_codes 未找到
+
+✗ get_fx_daily - 获取外汇日线行情
+  参数: {'ts_code': 'USDCNH.FXCM', 'trade_date': '20251203'}
+  结果: 工具 get_fx_daily 未找到
+
+✗ get_fut_basic - 获取期货合约基本信息
+  参数: {'exchange': 'SHFE'}
+  结果: 工具 get_fut_basic 未找到
+
+✗ get_nh_index - 获取南华期货指数
+  参数: {'ts_code': 'NHCI.NH', 'trade_date': '20251203'}
+  结果: 工具 get_nh_index 未找到
+
+✗ get_fut_holding - 获取期货持仓排名
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_fut_holding 未找到
+
+✗ get_fut_wsr - 获取期货仓单日报
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_fut_wsr 未找到
+
+✗ get_income_statement - 获取利润表数据
+  参数: {'ts_code': '000001.SZ', 'start_date': '20230101', 'end_date': '20231231'}
+  结果: 工具 get_income_statement 未找到
+
+✗ get_fina_indicator - 获取财务指标数据
+  参数: {'ts_code': '000001.SZ'}
+  结果: 工具 get_fina_indicator 未找到
+
+✗ get_eastmoney_concept_board - 获取东财概念板块行情
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_eastmoney_concept_board 未找到
+
+✗ get_eastmoney_concept_member - 获取东财概念成分
+  参数: {'ts_code': 'BK1184.DC', 'trade_date': '20251203'}
+  结果: 工具 get_eastmoney_concept_member 未找到
+
+✗ get_eastmoney_concept_daily - 获取东财概念日线
+  参数: {'trade_date': '20251203', 'idx_type': '概念板块'}
+  结果: 工具 get_eastmoney_concept_daily 未找到
+
+✗ get_concept_moneyflow_dc - 获取板块资金流向
+  参数: {'trade_date': '20251203'}
+  结果: 工具 get_concept_moneyflow_dc 未找到
+
+✗ scan_l2_volume_anomaly - 扫描成交量异动
+  参数: {'end_date': '20251203'}
+  结果: 工具 scan_l2_volume_anomaly 未找到
+
+✗ get_cache_stats - 获取缓存统计信息
+  参数: {}
+  结果: 工具 get_cache_stats 未找到
+

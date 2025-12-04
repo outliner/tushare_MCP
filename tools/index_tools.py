@@ -4,6 +4,7 @@ import pandas as pd
 from typing import TYPE_CHECKING, Optional
 from config.token_manager import get_tushare_token
 from cache.index_cache_manager import index_cache_manager
+from utils.common import format_date
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -778,18 +779,4 @@ def format_industry_index_codes(df: pd.DataFrame, level: str, src: str) -> str:
     result.append(f"共 {len(df)} 个{level_name}")
     
     return "\n".join(result)
-
-def format_date(date_str: str) -> str:
-    """
-    格式化日期字符串（YYYYMMDD -> YYYY-MM-DD）
-    
-    参数:
-        date_str: 日期字符串（YYYYMMDD格式）
-    
-    返回:
-        格式化后的日期字符串（YYYY-MM-DD格式）
-    """
-    if len(date_str) == 8:
-        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-    return date_str
 

@@ -14,6 +14,7 @@ from typing import Dict, List, Tuple
 from config.token_manager import get_tushare_token
 from cache.index_daily_cache_manager import index_daily_cache_manager
 from cache.cache_manager import cache_manager
+from cache.concept_cache_manager import concept_cache_manager
 
 def calculate_period_return(prices: pd.Series, days: int) -> float:
     """
@@ -145,19 +146,20 @@ def analyze_sector_alpha(
                         sector_df['ts_code'] = sector_df['index_code']
         elif is_eastmoney_concept:
             # 东财概念板块使用dc_daily接口
-            cache_params = {
-                'ts_code': sector_code,
-                'start_date': start_date,
-                'end_date': end_date
-            }
-            sector_df = cache_manager.get_dataframe('dc_daily', **cache_params)
+            # 优先从专用缓存管理器获取数据
+            sector_df = concept_cache_manager.get_concept_daily_data(
+                ts_code=sector_code,
+                start_date=start_date,
+                end_date=end_date
+            )
             
             if sector_df is None or sector_df.empty:
                 # 从API获取
                 pro = ts.pro_api()
                 sector_df = pro.dc_daily(ts_code=sector_code, start_date=start_date, end_date=end_date)
                 if not sector_df.empty:
-                    cache_manager.set('dc_daily', sector_df, **cache_params)
+                    # 保存到专用缓存管理器
+                    concept_cache_manager.save_concept_daily_data(sector_df)
             
             # 筛选指定板块的数据
             if not sector_df.empty and 'ts_code' in sector_df.columns:

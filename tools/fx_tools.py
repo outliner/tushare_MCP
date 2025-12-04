@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 from cache.cache_manager import cache_manager
+from utils.common import format_date
 
 
 def register_fx_tools(mcp: "FastMCP"):
@@ -254,18 +255,4 @@ def format_single_fx_daily(df: pd.DataFrame, ts_code: str) -> str:
     
     return "\n".join(result)
 
-
-def format_date(date_str: str) -> str:
-    """
-    格式化日期字符串（YYYYMMDD -> YYYY-MM-DD）
-    
-    参数:
-        date_str: 日期字符串（YYYYMMDD格式）
-    
-    返回:
-        格式化后的日期字符串（YYYY-MM-DD格式）
-    """
-    if len(date_str) == 8:
-        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-    return date_str
 
