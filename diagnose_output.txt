@@ -1,0 +1,12 @@
+﻿python : Traceback (most recent call last):
+所在位置 行:1 字符: 1
++ python diagnose_meso_scan.py 2>&1 | Out-File -FilePath diagnose_outpu ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last) 
+   ::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "D:\AI\tushare_MCP\diagnose_meso_scan.py", line 18, in <module>
+    print("\u2713 Token 已加载\n", flush=True)
+UnicodeEncodeError: 'gbk' codec can't encode character '\u2713' in position 0: 
+illegal multibyte sequence

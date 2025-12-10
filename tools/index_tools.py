@@ -578,6 +578,217 @@ def register_index_tools(mcp: "FastMCP"):
             
         except Exception as e:
             return f"查询失败：{str(e)}"
+    
+    @mcp.tool()
+    def get_sw_industry_members(
+        l1_code: str = "",
+        l2_code: str = "",
+        l3_code: str = "",
+        ts_code: str = ""
+    ) -> str:
+        """
+        获取申万行业成分构成(分级)
+        
+        参数:
+            l1_code: 一级行业代码（如：801050.SI 有色金属，可选）
+            l2_code: 二级行业代码（如：801053.SI 贵金属，可选）
+            l3_code: 三级行业代码（如：850531.SI 黄金，可选）
+            ts_code: 股票代码（如：000001.SZ，可选，用于查询该股票所属的行业分类）
+        
+        返回:
+            申万行业成分列表，包含一级/二级/三级行业代码和名称、股票代码和名称、纳入日期等信息
+        
+        说明:
+            - 可以按行业代码查询该行业下的所有成分股
+            - 可以按股票代码查询该股票所属的行业分类
+            - 支持一级、二级、三级行业代码查询
+            - 单次最大返回2000行数据
+            - 需要2000积分权限
+        
+        示例:
+            - 获取黄金行业成分股：l3_code="850531.SI"
+            - 获取某股票所属行业：ts_code="000001.SZ"
+            - 获取贵金属二级行业成分股：l2_code="801053.SI"
+        """
+        from cache.cache_manager import cache_manager
+        
+        token = get_tushare_token()
+        if not token:
+            return "请先配置Tushare token"
+        
+        # 参数验证
+        if not l1_code and not l2_code and not l3_code and not ts_code:
+            return "请至少提供一个查询参数：l1_code（一级行业代码）、l2_code（二级行业代码）、l3_code（三级行业代码）或 ts_code（股票代码）"
+        
+        try:
+            # 参数处理
+            l1_code = l1_code.strip() if l1_code else None
+            l2_code = l2_code.strip() if l2_code else None
+            l3_code = l3_code.strip() if l3_code else None
+            ts_code = ts_code.strip() if ts_code else None
+            
+            # 构建缓存参数
+            cache_params = {
+                'l1_code': l1_code or '',
+                'l2_code': l2_code or '',
+                'l3_code': l3_code or '',
+                'ts_code': ts_code or ''
+            }
+            
+            # 尝试从缓存获取
+            df = cache_manager.get_dataframe('index_member_all', **cache_params)
+            
+            # 检查是否需要更新
+            need_update = False
+            if df is None:
+                need_update = True
+            elif cache_manager.is_expired('index_member_all', **cache_params):
+                need_update = True
+            
+            if need_update:
+                pro = ts.pro_api()
+                params = {}
+                
+                if l1_code:
+                    params['l1_code'] = l1_code
+                if l2_code:
+                    params['l2_code'] = l2_code
+                if l3_code:
+                    params['l3_code'] = l3_code
+                if ts_code:
+                    params['ts_code'] = ts_code
+                
+                df = pro.index_member_all(**params)
+                
+                # 保存到缓存
+                if df is not None and not df.empty:
+                    cache_manager.set('index_member_all', df, **cache_params)
+            
+            if df is None or df.empty:
+                query_info = []
+                if l1_code:
+                    query_info.append(f"一级行业 {l1_code}")
+                if l2_code:
+                    query_info.append(f"二级行业 {l2_code}")
+                if l3_code:
+                    query_info.append(f"三级行业 {l3_code}")
+                if ts_code:
+                    query_info.append(f"股票 {ts_code}")
+                return f"未找到 {' / '.join(query_info)} 的申万行业成分数据"
+            
+            # 格式化输出
+            return format_sw_industry_members(df, l1_code, l2_code, l3_code, ts_code)
+            
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            return f"查询失败：{str(e)}\n详细信息：{error_detail}"
+
+
+def format_sw_industry_members(
+    df: pd.DataFrame,
+    l1_code: Optional[str] = None,
+    l2_code: Optional[str] = None,
+    l3_code: Optional[str] = None,
+    ts_code: Optional[str] = None
+) -> str:
+    """
+    格式化申万行业成分数据输出
+    
+    参数:
+        df: 申万行业成分数据DataFrame
+        l1_code: 一级行业代码
+        l2_code: 二级行业代码
+        l3_code: 三级行业代码
+        ts_code: 股票代码
+    
+    返回:
+        格式化后的字符串
+    """
+    if df.empty:
+        return "未找到符合条件的申万行业成分数据"
+    
+    result = []
+    
+    # 根据查询类型显示不同的标题
+    if ts_code:
+        result.append(f"📊 股票 {ts_code} 所属申万行业分类")
+    elif l3_code:
+        # 获取三级行业名称
+        l3_name = df['l3_name'].iloc[0] if 'l3_name' in df.columns and not df.empty else l3_code
+        result.append(f"📊 申万三级行业【{l3_name}】({l3_code}) 成分股")
+    elif l2_code:
+        l2_name = df['l2_name'].iloc[0] if 'l2_name' in df.columns and not df.empty else l2_code
+        result.append(f"📊 申万二级行业【{l2_name}】({l2_code}) 成分股")
+    elif l1_code:
+        l1_name = df['l1_name'].iloc[0] if 'l1_name' in df.columns and not df.empty else l1_code
+        result.append(f"📊 申万一级行业【{l1_name}】({l1_code}) 成分股")
+    else:
+        result.append("📊 申万行业成分")
+    
+    result.append("=" * 100)
+    result.append("")
+    
+    # 如果是查询股票所属行业，显示行业分类信息
+    if ts_code:
+        result.append(f"{'股票代码':<12} {'股票名称':<12} {'一级行业':<15} {'二级行业':<15} {'三级行业':<15} {'纳入日期':<12}")
+        result.append("-" * 100)
+        
+        for _, row in df.iterrows():
+            stock_code = str(row.get('ts_code', '-'))
+            stock_name = str(row.get('name', '-'))
+            l1_name = str(row.get('l1_name', '-'))
+            l2_name = str(row.get('l2_name', '-'))
+            l3_name = str(row.get('l3_name', '-'))
+            in_date_raw = str(row.get('in_date', '-'))
+            in_date = format_date(in_date_raw) if in_date_raw != '-' else '-'
+            
+            result.append(f"{stock_code:<12} {stock_name:<12} {l1_name:<15} {l2_name:<15} {l3_name:<15} {in_date:<12}")
+    else:
+        # 显示成分股列表
+        result.append(f"{'股票代码':<12} {'股票名称':<15} {'一级行业':<15} {'二级行业':<15} {'三级行业':<15} {'纳入日期':<12}")
+        result.append("-" * 100)
+        
+        # 按股票代码排序
+        df_sorted = df.sort_values('ts_code') if 'ts_code' in df.columns else df
+        
+        for _, row in df_sorted.iterrows():
+            stock_code = str(row.get('ts_code', '-'))
+            stock_name = str(row.get('name', '-'))
+            l1_name = str(row.get('l1_name', '-'))
+            l2_name = str(row.get('l2_name', '-'))
+            l3_name = str(row.get('l3_name', '-'))
+            in_date_raw = str(row.get('in_date', '-'))
+            in_date = format_date(in_date_raw) if in_date_raw != '-' else '-'
+            
+            result.append(f"{stock_code:<12} {stock_name:<15} {l1_name:<15} {l2_name:<15} {l3_name:<15} {in_date:<12}")
+    
+    result.append("")
+    result.append(f"共 {len(df)} 条记录")
+    
+    # 显示行业层级信息
+    if not ts_code and not df.empty:
+        result.append("")
+        result.append("📋 行业层级信息：")
+        result.append("-" * 100)
+        
+        # 获取唯一的行业层级
+        if 'l1_code' in df.columns and 'l1_name' in df.columns:
+            l1_info = df[['l1_code', 'l1_name']].drop_duplicates()
+            for _, row in l1_info.iterrows():
+                result.append(f"一级行业: {row['l1_name']} ({row['l1_code']})")
+        
+        if 'l2_code' in df.columns and 'l2_name' in df.columns:
+            l2_info = df[['l2_code', 'l2_name']].drop_duplicates()
+            for _, row in l2_info.iterrows():
+                result.append(f"二级行业: {row['l2_name']} ({row['l2_code']})")
+        
+        if 'l3_code' in df.columns and 'l3_name' in df.columns:
+            l3_info = df[['l3_code', 'l3_name']].drop_duplicates()
+            for _, row in l3_info.iterrows():
+                result.append(f"三级行业: {row['l3_name']} ({row['l3_code']})")
+    
+    return "\n".join(result)
 
 
 def format_sw_industry_daily_data(df: pd.DataFrame, level: str) -> str:

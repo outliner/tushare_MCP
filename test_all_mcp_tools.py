@@ -214,7 +214,22 @@ test_cases.extend([
     ("scan_l2_volume_anomaly", {"end_date": test_date}, "扫描成交量异动"),
 ])
 
-# 9. 缓存管理工具 (1个)
+# 9. 宏观全景扫描工具 (1个)
+test_cases.extend([
+    ("macro_scan", {"trade_date": test_date}, "宏观全景扫描"),
+])
+
+# 10. 中观全周期扫描工具 (1个)
+test_cases.extend([
+    ("meso_scan", {"trade_date": test_date}, "中观全周期扫描"),
+])
+
+# 11. 机构抱团扫描工具 (1个)
+test_cases.extend([
+    ("inst_track_scan", {"trade_date": test_date}, "机构抱团扫描"),
+])
+
+# 12. 缓存管理工具 (1个)
 test_cases.extend([
     ("get_cache_stats", {}, "获取缓存统计信息"),
 ])
@@ -289,6 +304,9 @@ categories = {
     "财务报表": ["get_income_statement", "get_fina_indicator"],
     "概念板块": ["get_eastmoney_concept_board", "get_eastmoney_concept_member", "get_eastmoney_concept_daily", "get_concept_moneyflow_dc"],
     "成交量异动": ["scan_l2_volume_anomaly"],
+    "宏观全景扫描": ["macro_scan"],
+    "中观全周期扫描": ["meso_scan"],
+    "机构抱团扫描": ["inst_track_scan"],
     "缓存管理": ["get_cache_stats"]
 }
 
