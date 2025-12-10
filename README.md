@@ -1,3 +1,91 @@
+# Tushare MCP Server
+
+基于 MCP (Model Context Protocol) 的 Tushare 金融数据服务器，提供 52 个专业金融数据分析工具。
+
+## 🎯 项目特性
+
+- ✅ **52个专业工具** - 涵盖股票、期货、外汇、财务等10大类
+- ✅ **双模式支持** - stdio 模式和 HTTP SSE 模式
+- ✅ **智能缓存** - 自动缓存管理，提升查询效率
+- ✅ **权限管理** - 支持不同 Tushare 权限级别
+- ✅ **开箱即用** - 自动工具发现和注册
+
+## 📦 快速开始
+
+### 1. 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 配置 Tushare Token
+
+在项目根目录创建 `.env` 文件：
+
+```env
+TUSHARE_TOKEN=your_token_here
+```
+
+获取 Token: [https://tushare.pro/user/token](https://tushare.pro/user/token)
+
+### 3. 选择运行模式
+
+#### 方式 A: stdio 模式（推荐用于 Claude Desktop）
+
+**配置文件**: `%APPDATA%\Claude\claude_desktop_config.json` (Windows) 或 `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+
+```json
+{
+  "mcpServers": {
+    "tushare": {
+      "command": "python",
+      "args": ["D:/AI/tushare_MCP/server.py"]
+    }
+  }
+}
+```
+
+**启动**: 重启 Claude Desktop 即可自动启动
+
+#### 方式 B: Streamable HTTP 模式（推荐用于调试和远程访问）
+
+**启动服务器**:
+```bash
+# Windows
+start_http_server.bat
+
+# Linux/macOS
+chmod +x start_http_server.sh
+./start_http_server.sh
+```
+
+**配置文件**: 同上 Claude Desktop 配置文件
+
+```json
+{
+  "mcpServers": {
+    "tushare-http": {
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+
+
+## 🛠️ 模式对比
+
+| 特性 | stdio 模式 | Streamable HTTP 模式 |
+|------|-----------|--------------|
+| **通信方式** | 标准输入输出 | HTTP JSON-RPC |
+| **网络访问** | ❌ 仅本地进程 | ✅ 支持网络访问 |
+| **并发连接** | ❌ 单客户端 | ✅ 多客户端 |
+| **调试难度** | 🔴 较难 | 🟢 容易（可用 curl 测试） |
+| **适用场景** | 本地单用户 | 开发调试、多用户、远程访问 |
+| **配置方式** | `command` + `args` | `url` |
+
+## 📊 工具分类
+
 Tushare MCP 工具完整列表
 本文档列出了所有支持的MCP工具，共 52个工具，分为10个类别。
 

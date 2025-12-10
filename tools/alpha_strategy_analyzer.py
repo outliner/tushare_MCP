@@ -16,6 +16,11 @@ from cache.index_daily_cache_manager import index_daily_cache_manager
 from cache.cache_manager import cache_manager
 from cache.concept_cache_manager import concept_cache_manager
 
+# [Fix] Override print to suppress excessive stderr logging that might cause MCP crashes
+def print(*args, **kwargs):
+    pass
+
+
 def calculate_period_return(prices: pd.Series, days: int) -> float:
     """
     计算区间收益率

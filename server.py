@@ -9,7 +9,16 @@ Tushare MCP服务器主入口
 """
 import os
 import sys
+import io
 from pathlib import Path
+
+# Force UTF-8 for stdout/stderr to handle emojis on Windows
+if sys.platform == 'win32':
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if isinstance(sys.stderr, io.TextIOWrapper):
+        sys.stderr.reconfigure(encoding='utf-8')
+
 import tushare as ts
 from mcp.server.fastmcp import FastMCP
 

@@ -103,6 +103,7 @@ def register_inst_track_tools(mcp: "FastMCP"):
             )
             
             return report
+            # return "Test Success: Report generated but suppressed for testing."
             
         except Exception as e:
             import traceback
