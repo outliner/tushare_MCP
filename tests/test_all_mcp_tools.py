@@ -219,11 +219,6 @@ test_cases.extend([
     ("macro_scan", {"trade_date": test_date}, "宏观全景扫描"),
 ])
 
-# 10. 中观全周期扫描工具 (1个)
-test_cases.extend([
-    ("meso_scan", {"trade_date": test_date}, "中观全周期扫描"),
-])
-
 # 11. 机构抱团扫描工具 (1个)
 test_cases.extend([
     ("inst_track_scan", {"trade_date": test_date}, "机构抱团扫描"),
@@ -305,7 +300,6 @@ categories = {
     "概念板块": ["get_eastmoney_concept_board", "get_eastmoney_concept_member", "get_eastmoney_concept_daily", "get_concept_moneyflow_dc"],
     "成交量异动": ["scan_l2_volume_anomaly"],
     "宏观全景扫描": ["macro_scan"],
-    "中观全周期扫描": ["meso_scan"],
     "机构抱团扫描": ["inst_track_scan"],
     "缓存管理": ["get_cache_stats"]
 }
