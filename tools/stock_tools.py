@@ -2999,6 +2999,116 @@ def register_stock_tools(mcp: "FastMCP"):
             import traceback
             error_detail = traceback.format_exc()
             return f"查询失败：{str(e)}\n详细信息：{error_detail}"
+    
+    @mcp.tool()
+    def get_stock_auction(
+        ts_code: str = "",
+        trade_date: str = "",
+        start_date: str = "",
+        end_date: str = ""
+    ) -> str:
+        """
+        获取当日个股和ETF的集合竞价成交情况
+        
+        参数:
+            ts_code: 股票代码（如：000001.SZ，可选）
+            trade_date: 交易日期（YYYYMMDD格式，如：20250218，查询指定日期的数据）
+            start_date: 开始日期（YYYYMMDD格式，需与end_date配合使用）
+            end_date: 结束日期（YYYYMMDD格式，需与start_date配合使用）
+        
+        注意:
+            - 如果提供了trade_date，将查询该特定日期的数据
+            - 如果提供了start_date和end_date，将查询该日期范围内的数据
+            - trade_date优先级高于start_date/end_date
+            - 数据说明：获取当日个股和ETF的集合竞价成交情况，每天9点25~29分之间可以获取当日的集合竞价成交数据
+            - 权限要求：本接口是单独开权限的数据，已经开通了股票分钟权限的用户可自动获得本接口权限
+            - 限量：单次最大返回8000行数据，可根据日期或代码循环获取历史
+        
+        返回:
+            包含集合竞价成交数据的格式化字符串
+        """
+        token = get_tushare_token()
+        if not token:
+            return "请先配置Tushare token"
+        
+        # 参数验证：至少需要提供一个查询条件
+        if not trade_date and not ts_code and not start_date and not end_date:
+            return "请至少提供以下参数之一：交易日期(trade_date)、股票代码(ts_code)或日期范围(start_date/end_date)"
+        
+        # 如果提供了日期范围，必须同时提供start_date和end_date
+        if (start_date and not end_date) or (end_date and not start_date):
+            return "如果使用日期范围查询，请同时提供start_date和end_date"
+        
+        try:
+            pro = ts.pro_api()
+            
+            # 构建查询参数
+            params = {}
+            if ts_code:
+                params['ts_code'] = ts_code
+            if trade_date:
+                params['trade_date'] = trade_date
+            if start_date:
+                params['start_date'] = start_date
+            if end_date:
+                params['end_date'] = end_date
+            
+            # 如果同时提供了trade_date和日期范围，优先使用trade_date
+            if trade_date and (start_date or end_date):
+                params.pop('start_date', None)
+                params.pop('end_date', None)
+            
+            # 尝试从缓存获取（即使过期也返回）
+            cache_params = {
+                'ts_code': ts_code or '',
+                'trade_date': trade_date or '',
+                'start_date': start_date or '',
+                'end_date': end_date or ''
+            }
+            df = cache_manager.get_dataframe('stk_auction', **cache_params)
+            
+            # 检查是否需要更新（过期后立即更新）
+            need_update = False
+            if df is None:
+                need_update = True
+            elif cache_manager.is_expired('stk_auction', **cache_params):
+                need_update = True
+            
+            if need_update:
+                # 过期后立即更新（同步）
+                try:
+                    df = pro.stk_auction(**params)
+                    
+                    # 保存到缓存（创建新版本）
+                    if not df.empty:
+                        cache_manager.set('stk_auction', df, **cache_params)
+                except Exception as api_error:
+                    error_msg = str(api_error)
+                    # 检查是否是接口名错误或权限问题
+                    if '接口名' in error_msg or 'api_name' in error_msg.lower() or '请指定正确的接口名' in error_msg:
+                        return f"API接口调用失败：{error_msg}\n\n已使用接口：stk_auction\n\n可能的原因：\n1. Tushare token是否有效\n2. 账户是否开通了股票分钟权限（已开通的用户可自动获得本接口权限）\n3. 网络连接是否正常\n4. 查询日期是否为交易日\n5. 查询时间是否在9点25~29分之间（当日数据）\n\n建议：\n- 请查看Tushare文档确认stk_auction接口是否可用\n- 检查是否已开通股票分钟权限"
+                    else:
+                        return f"API调用失败：{error_msg}\n请检查：\n1. Tushare token是否有效\n2. 账户是否开通了股票分钟权限\n3. 网络连接是否正常\n4. 查询日期是否为交易日"
+            
+            if df is None or df.empty:
+                param_info = []
+                if trade_date:
+                    param_info.append(f"交易日期: {trade_date}")
+                if ts_code:
+                    param_info.append(f"股票代码: {ts_code}")
+                if start_date and end_date:
+                    param_info.append(f"日期范围: {start_date} 至 {end_date}")
+                
+                param_str = "、".join(param_info) if param_info else "指定条件"
+                return f"未找到符合{param_str}的集合竞价数据\n\n提示：\n- 当日数据需要在9点25~29分之间查询\n- 请确认查询日期是否为交易日\n- 请确认股票代码是否正确"
+            
+            # 格式化输出
+            return format_stock_auction_data(df, ts_code or "")
+            
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            return f"查询失败：{str(e)}\n详细信息：{error_detail}"
 
 
 def format_holder_number_data(df: pd.DataFrame, ts_code: str) -> str:
@@ -6024,5 +6134,156 @@ def format_limit_cpt_list_data(df: pd.DataFrame, trade_date: str = "", ts_code: 
     result.append("  - 板块热点排名：根据涨停家数、连板高度等指标综合排名，排名越小越强")
     result.append("  - 权限要求：8000积分以上每分钟500次，每天总量不限制")
     result.append("  - 限量：单次最大2000行数据，可根据股票代码或日期循环提取全部")
+    
+    return "\n".join(result)
+
+
+def format_stock_auction_data(df: pd.DataFrame, ts_code: str = "") -> str:
+    """
+    格式化集合竞价数据
+    
+    参数:
+        df: 集合竞价数据DataFrame
+        ts_code: 股票代码（可选，用于单股票查询时的标题）
+    """
+    if df.empty:
+        return "未找到集合竞价数据"
+    
+    result = []
+    
+    # 标题
+    if ts_code:
+        result.append(f"📊 股票 {ts_code} 集合竞价成交情况")
+    else:
+        result.append("📊 集合竞价成交情况")
+    result.append("=" * 80)
+    result.append("")
+    
+    # 数据统计
+    result.append("📈 数据统计:")
+    result.append(f"  - 记录数量: {len(df)} 条")
+    
+    # 日期范围
+    if 'trade_date' in df.columns:
+        dates = df['trade_date'].unique()
+        if len(dates) == 1:
+            result.append(f"  - 交易日期: {dates[0]}")
+        else:
+            result.append(f"  - 日期范围: {min(dates)} 至 {max(dates)}")
+    
+    result.append("")
+    
+    # 数据表格
+    result.append("📋 详细数据:")
+    result.append("")
+    
+    # 构建表头
+    headers = []
+    if 'ts_code' in df.columns:
+        headers.append(('股票代码', 12))
+    if 'trade_date' in df.columns:
+        headers.append(('交易日期', 12))
+    if 'vol' in df.columns:
+        headers.append(('成交量(股)', 15))
+    if 'price' in df.columns:
+        headers.append(('成交均价(元)', 15))
+    if 'amount' in df.columns:
+        headers.append(('成交金额(元)', 18))
+    if 'pre_close' in df.columns:
+        headers.append(('昨收价(元)', 15))
+    if 'turnover_rate' in df.columns:
+        headers.append(('换手率(%)', 12))
+    if 'volume_ratio' in df.columns:
+        headers.append(('量比', 10))
+    if 'float_share' in df.columns:
+        headers.append(('流通股本(万股)', 15))
+    
+    # 打印表头
+    if headers:
+        header_line = " | ".join([f"{h[0]:<{h[1]}}" for h in headers])
+        result.append(header_line)
+        result.append("-" * len(header_line))
+    
+    # 打印数据行
+    for idx, row in df.iterrows():
+        row_data = []
+        for header, width in headers:
+            field = header.split('(')[0].replace(' ', '_').lower()
+            # 字段名映射
+            field_map = {
+                '股票代码': 'ts_code',
+                '交易日期': 'trade_date',
+                '成交量(股)': 'vol',
+                '成交均价(元)': 'price',
+                '成交金额(元)': 'amount',
+                '昨收价(元)': 'pre_close',
+                '换手率(%)': 'turnover_rate',
+                '量比': 'volume_ratio',
+                '流通股本(万股)': 'float_share'
+            }
+            field_name = field_map.get(header, field)
+            
+            if field_name in row.index:
+                value = row[field_name]
+                if pd.isna(value):
+                    row_data.append(f"{'-':<{width}}")
+                elif field_name in ['vol', 'amount', 'float_share']:
+                    if field_name == 'vol':
+                        # 成交量，整数显示
+                        row_data.append(f"{int(value):<{width},}")
+                    elif field_name == 'amount':
+                        # 成交金额，保留2位小数
+                        row_data.append(f"{float(value):<{width},.2f}")
+                    else:
+                        # 流通股本，保留2位小数
+                        row_data.append(f"{float(value):<{width},.2f}")
+                elif field_name in ['price', 'pre_close']:
+                    # 价格，保留2位小数
+                    row_data.append(f"{float(value):<{width},.2f}")
+                elif field_name in ['turnover_rate', 'volume_ratio']:
+                    # 百分比和比率，保留4位小数
+                    row_data.append(f"{float(value):<{width},.4f}")
+                else:
+                    row_data.append(f"{str(value):<{width}}")
+            else:
+                row_data.append(f"{'-':<{width}}")
+        
+        result.append(" | ".join(row_data))
+    
+    result.append("")
+    
+    # 统计信息
+    result.append("📊 统计信息:")
+    if 'vol' in df.columns:
+        total_vol = df['vol'].sum()
+        result.append(f"  - 总成交量: {total_vol:,} 股")
+    if 'amount' in df.columns:
+        total_amount = df['amount'].sum()
+        result.append(f"  - 总成交金额: {total_amount:,.2f} 元")
+    if 'price' in df.columns:
+        avg_price = df['price'].mean()
+        if pd.notna(avg_price):
+            result.append(f"  - 平均成交价: {avg_price:.2f} 元")
+    if 'turnover_rate' in df.columns:
+        avg_turnover = df['turnover_rate'].mean()
+        if pd.notna(avg_turnover):
+            result.append(f"  - 平均换手率: {avg_turnover:.4f}%")
+    if 'volume_ratio' in df.columns:
+        avg_vol_ratio = df['volume_ratio'].mean()
+        if pd.notna(avg_vol_ratio):
+            result.append(f"  - 平均量比: {avg_vol_ratio:.4f}")
+    
+    result.append("")
+    result.append("📝 说明：")
+    result.append("  - 数据来源：Tushare stk_auction接口")
+    result.append("  - 功能：获取当日个股和ETF的集合竞价成交情况")
+    result.append("  - 查询时间：每天9点25~29分之间可以获取当日的集合竞价成交数据")
+    result.append("  - 权限要求：本接口是单独开权限的数据，已经开通了股票分钟权限的用户可自动获得本接口权限")
+    result.append("  - 限量：单次最大返回8000行数据，可根据日期或代码循环获取历史")
+    result.append("  - 成交量：集合竞价期间的成交量（股）")
+    result.append("  - 成交均价：集合竞价期间的成交均价（元）")
+    result.append("  - 成交金额：集合竞价期间的成交金额（元）")
+    result.append("  - 换手率：集合竞价期间的换手率（%）")
+    result.append("  - 量比：集合竞价期间的量比")
     
     return "\n".join(result)
