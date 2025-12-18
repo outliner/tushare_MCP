@@ -460,7 +460,7 @@ def format_concept_alpha_analysis(df: pd.DataFrame) -> str:
     
     result.append("")
     result.append("📝 说明：")
-    result.append("  - Alpha = 板块收益率 - 基准收益率（沪深300）")
+    result.append("  - Alpha = 板块收益率 - 基准收益率（上证指数）")
     result.append("  - 综合得分 = Alpha_2 × 60% + Alpha_5 × 40%（如果5日数据不足，则仅使用2日Alpha）")
     result.append("  - 得分越高，表示板块相对大盘越强势")
     result.append("  - 建议关注得分前5-10名的板块")
@@ -1239,7 +1239,7 @@ def register_concept_tools(mcp: "FastMCP"):
     @mcp.tool()
     def analyze_concept_alpha_strategy(
         concept_code: str = "",
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = ""
     ) -> str:
         """
@@ -1247,7 +1247,7 @@ def register_concept_tools(mcp: "FastMCP"):
         
         参数:
             concept_code: 板块代码（如：BK1184.DC人形机器人、BK1186.DC首发经济等）
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，如：20241124，默认今天）
         
         返回:
@@ -1348,7 +1348,7 @@ def register_concept_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_concepts_by_alpha(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = "",
         top_n: int = 20,
         hot_limit: int = 80,
@@ -1358,7 +1358,7 @@ def register_concept_tools(mcp: "FastMCP"):
         对热门东财板块进行Alpha排名（支持概念、行业、地域）
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
             top_n: 显示前N名（默认20）
             hot_limit: 筛选的热门板块数量（默认80，根据成交额和换手率筛选）
@@ -1382,12 +1382,20 @@ def register_concept_tools(mcp: "FastMCP"):
             end_date = None
         
         try:
-            # 获取热门板块代码列表（根据成交额和换手率筛选）
             trade_date_str = end_date if end_date else datetime.now().strftime('%Y%m%d')
-            concept_codes = get_hot_dc_board_codes(trade_date_str, limit=hot_limit, board_type=board_type)
+            
+            # 对于地域板块和行业板块，由于数量较少，直接获取所有板块代码，不进行热门筛选
+            # 这样可以确保分析覆盖全量数据
+            if board_type in ['地域板块', '行业板块']:
+                concept_codes = get_dc_board_codes(trade_date_str, board_type=board_type)
+                is_hot_selection = False
+            else:
+                # 获取热门板块代码列表（根据成交额和换手率筛选）
+                concept_codes = get_hot_dc_board_codes(trade_date_str, limit=hot_limit, board_type=board_type)
+                is_hot_selection = True
             
             if not concept_codes:
-                return f"无法获取热门{board_type}列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
+                return f"无法获取{board_type}列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
             
             # 进行Alpha排名
             df = rank_sectors_alpha(concept_codes, benchmark_code, end_date)
@@ -1460,11 +1468,12 @@ def register_concept_tools(mcp: "FastMCP"):
             
             # 如果只显示了部分，添加提示
             if top_n < len(df):
-                result += f"\n\n（共分析 {len(df)} 个热门{board_type}，仅显示前 {top_n} 名）"
+                result += f"\n\n（共分析 {len(df)} 个{board_type}，仅显示前 {top_n} 名）"
             else:
-                result += f"\n\n（共分析 {len(df)} 个热门{board_type}）"
+                result += f"\n\n（共分析 {len(df)} 个{board_type}）"
             
-            result += f"\n（从热门板块中筛选，筛选标准：成交额和换手率，筛选数量：{hot_limit}）"
+            if is_hot_selection:
+                result += f"\n（从热门板块中筛选，筛选标准：成交额和换手率，筛选数量：{hot_limit}）"
             
             return result
             
@@ -1475,7 +1484,7 @@ def register_concept_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_concepts_alpha_velocity(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = "",
         board_type: str = "概念板块"
     ) -> str:
@@ -1483,7 +1492,7 @@ def register_concept_tools(mcp: "FastMCP"):
         分析东财板块Alpha排名上升速度（支持概念、行业、地域）
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
             board_type: 板块类型（可选：概念板块、行业板块、地域板块，默认概念板块）
         

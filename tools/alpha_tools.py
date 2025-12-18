@@ -225,7 +225,7 @@ def register_alpha_tools(mcp: "FastMCP"):
     @mcp.tool()
     def analyze_sector_alpha_strategy(
         sector_code: str = "",
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = ""
     ) -> str:
         """
@@ -233,7 +233,7 @@ def register_alpha_tools(mcp: "FastMCP"):
         
         参数:
             sector_code: 板块指数代码（如：801010.SI农林牧渔、801080.SI电子等）
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，如：20241124，默认今天）
         
         返回:
@@ -359,7 +359,7 @@ def register_alpha_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_sectors_by_alpha(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = "",
         top_n: int = 10
     ) -> str:
@@ -367,7 +367,7 @@ def register_alpha_tools(mcp: "FastMCP"):
         对所有申万一级行业进行Alpha排名
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
             top_n: 显示前N名（默认10）
         
@@ -411,7 +411,7 @@ def register_alpha_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_l2_sectors_by_alpha(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = "",
         top_n: int = 20
     ) -> str:
@@ -419,7 +419,7 @@ def register_alpha_tools(mcp: "FastMCP"):
         对所有申万二级行业进行Alpha排名
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
             top_n: 显示前N名（默认20）
         
@@ -476,7 +476,7 @@ def register_alpha_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_l2_sectors_alpha_velocity(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = "",
         top_n: int = 20
     ) -> str:
@@ -484,7 +484,7 @@ def register_alpha_tools(mcp: "FastMCP"):
         分析申万二级行业Alpha排名上升速度
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
             top_n: 显示前N名（默认20）
         
@@ -644,7 +644,7 @@ def register_alpha_tools(mcp: "FastMCP"):
                 output.append("")
             
             output.append("📝 说明：")
-            output.append("  - Alpha = 板块收益率 - 基准收益率（沪深300）")
+            output.append("  - Alpha = 板块收益率 - 基准收益率（上证指数）")
             output.append("  - 排名变化 = 对比日期排名 - 当前排名（正数表示排名上升）")
             output.append(f"  - 当前日期：{current_date_display} ({current_date})")
             if yesterday_date:
@@ -664,14 +664,14 @@ def register_alpha_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_l1_sectors_alpha_full(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = ""
     ) -> str:
         """
         获取申万一级行业Alpha综合得分完整排行
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
         
         返回:
@@ -707,14 +707,14 @@ def register_alpha_tools(mcp: "FastMCP"):
     
     @mcp.tool()
     def rank_l1_sectors_alpha_velocity(
-        benchmark_code: str = "000300.SH",
+        benchmark_code: str = "000001.SH",
         end_date: str = ""
     ) -> str:
         """
         分析申万一级行业Alpha排名上升速度
         
         参数:
-            benchmark_code: 基准指数代码（默认：000300.SH沪深300）
+            benchmark_code: 基准指数代码（默认：000001.SH上证指数）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
         
         返回:
@@ -882,7 +882,7 @@ def register_alpha_tools(mcp: "FastMCP"):
                 output.append("")
             
             output.append("📝 说明：")
-            output.append("  - Alpha = 板块收益率 - 基准收益率（沪深300）")
+            output.append("  - Alpha = 板块收益率 - 基准收益率（上证指数）")
             output.append("  - 排名变化 = 对比日期排名 - 当前排名（正数表示排名上升）")
             output.append(f"  - 当前日期：{current_date_display} ({current_date})")
             if yesterday_date:

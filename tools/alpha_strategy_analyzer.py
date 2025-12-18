@@ -80,7 +80,7 @@ def calculate_alpha_score(alpha_2: float, alpha_5: float) -> float:
 
 def analyze_sector_alpha(
     sector_code: str,
-    benchmark_code: str = "000300.SH",
+    benchmark_code: str = "000001.SH",
     end_date: str = None
 ) -> Dict:
     """
@@ -88,7 +88,7 @@ def analyze_sector_alpha(
     
     参数:
         sector_code: 板块指数代码
-        benchmark_code: 基准指数代码（默认沪深300）
+        benchmark_code: 基准指数代码（默认上证指数）
         end_date: 结束日期（YYYYMMDD格式，默认今天）
     
     返回:
@@ -283,7 +283,7 @@ def analyze_sector_alpha(
 
 def rank_sectors_alpha(
     sector_codes: List[str],
-    benchmark_code: str = "000300.SH",
+    benchmark_code: str = "000001.SH",
     end_date: str = None
 ) -> pd.DataFrame:
     """
@@ -420,7 +420,7 @@ def format_alpha_analysis(df: pd.DataFrame) -> str:
     
     result.append("")
     result.append("📝 说明：")
-    result.append("  - Alpha = 板块收益率 - 基准收益率（沪深300）")
+    result.append("  - Alpha = 板块收益率 - 基准收益率（上证指数）")
     result.append("  - 综合得分 = Alpha_2 × 60% + Alpha_5 × 40%（如果5日数据不足，则仅使用2日Alpha）")
     result.append("  - 得分越高，表示板块相对大盘越强势")
     result.append("  - 建议关注得分前5-10名的板块")
@@ -482,7 +482,7 @@ def get_previous_trading_dates(end_date: str, days: int = 5) -> List[str]:
             print(f"调试：交易日历接口失败，尝试备用方法: {str(e)}", file=sys.stderr)
         
         # 方法2：备用方法 - 使用基准指数的数据来确定交易日
-        benchmark_code = "000300.SH"
+        benchmark_code = "000001.SH"
         
         benchmark_df = index_daily_cache_manager.get_index_daily_data(
             ts_code=benchmark_code,
@@ -526,7 +526,7 @@ def get_previous_trading_dates(end_date: str, days: int = 5) -> List[str]:
 
 def calculate_alpha_rank_velocity(
     sector_codes: List[str],
-    benchmark_code: str = "000300.SH",
+    benchmark_code: str = "000001.SH",
     end_date: str = None
 ) -> pd.DataFrame:
     """
