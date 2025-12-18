@@ -207,21 +207,48 @@ def analyze_sector_alpha(
         
         # 提取收盘价序列（申万行业可能使用不同的字段名）
         if 'close' in sector_df.columns:
-            sector_prices = sector_df['close']
+            sector_val = 'close'
         elif 'index' in sector_df.columns:
-            sector_prices = sector_df['index']  # sw_daily可能使用index字段
+            sector_val = 'index'  # sw_daily可能使用index字段
         else:
             return {"error": f"无法找到 {sector_code} 的收盘价字段"}
+            
+        # 确保数据按日期对齐
+        # 将 trade_date 设为索引并转为 datetime 类型
+        sector_df['trade_date'] = pd.to_datetime(sector_df['trade_date'].astype(str))
+        benchmark_df['trade_date'] = pd.to_datetime(benchmark_df['trade_date'].astype(str))
         
-        benchmark_prices = benchmark_df['close']
+        sector_df = sector_df.set_index('trade_date')
+        benchmark_df = benchmark_df.set_index('trade_date')
+        
+        # 取交集索引（共同的交易日），并按日期降序排列
+        common_dates = sector_df.index.intersection(benchmark_df.index).sort_values(ascending=False)
+        
+        if len(common_dates) < 6: # 至少需要6天数据（计算5日收益率需要第6天的数据作为基准）
+             return {"error": f"数据不足，共同交易日仅 {len(common_dates)} 天"}
+             
+        # 基于共同日期对齐数据
+        sector_prices = sector_df.loc[common_dates][sector_val]
+        benchmark_prices = benchmark_df.loc[common_dates]['close']
+        
+        # 检查最新日期是否是请求的 end_date (或者最近的交易日)
+        # 只有当显式请求了 end_date 且不是今天时才进行此检查
+        # (如果是今天，可能数据还没更新，我们接受最新可用的数据)
+        latest_date = sector_prices.index[0].strftime('%Y%m%d')
+        
+        # 记录实际使用的日期，用于返回结果
+        actual_date = latest_date
         
         # 计算收益率
+        r_sector_1 = calculate_period_return(sector_prices, 1)
         r_sector_2 = calculate_period_return(sector_prices, 2)
         r_sector_5 = calculate_period_return(sector_prices, 5)
+        r_benchmark_1 = calculate_period_return(benchmark_prices, 1)
         r_benchmark_2 = calculate_period_return(benchmark_prices, 2)
         r_benchmark_5 = calculate_period_return(benchmark_prices, 5)
         
         # 计算Alpha
+        alpha_1 = calculate_alpha(r_sector_1, r_benchmark_1)
         alpha_2 = calculate_alpha(r_sector_2, r_benchmark_2)
         alpha_5 = calculate_alpha(r_sector_5, r_benchmark_5)
         
@@ -236,10 +263,14 @@ def analyze_sector_alpha(
             "sector_code": sector_code,
             "benchmark_code": benchmark_code,
             "end_date": end_date,
+            "actual_date": actual_date,  # 添加实际使用的日期
+            "r_sector_1": r_sector_1,
             "r_sector_2": r_sector_2,
             "r_sector_5": r_sector_5,
+            "r_benchmark_1": r_benchmark_1,
             "r_benchmark_2": r_benchmark_2,
             "r_benchmark_5": r_benchmark_5,
+            "alpha_1": alpha_1,
             "alpha_2": alpha_2,
             "alpha_5": alpha_5,
             "score": score
@@ -321,27 +352,71 @@ def format_alpha_analysis(df: pd.DataFrame) -> str:
     result = []
     result.append("📊 相对强度Alpha模型分析结果")
     result.append("=" * 120)
+    
+    # 添加日期信息检查
+    if 'actual_date' in df.columns:
+        actual_dates = df['actual_date'].dropna().unique()
+        requested_dates = df['end_date'].dropna().unique() if 'end_date' in df.columns else []
+        
+        if len(actual_dates) == 1:
+            actual_date_str = str(actual_dates[0])
+            result.append(f"实际数据日期: {actual_date_str}")
+            
+            # 检查与请求日期是否一致
+            if len(requested_dates) == 1:
+                req_date = str(requested_dates[0])
+                if req_date and req_date != actual_date_str:
+                    result.append(f"⚠️ 注意：实际数据日期 ({actual_date_str}) 与请求日期 ({req_date}) 不一致")
+                    result.append("          可能是当天数据尚未更新，系统自动使用了最近的交易日数据")
+        elif len(actual_dates) > 1:
+            dates_str = ", ".join([str(d) for d in actual_dates[:3]])
+            if len(actual_dates) > 3:
+                dates_str += "..."
+            result.append(f"实际数据日期: {dates_str} (存在多个日期)")
+            result.append("⚠️ 注意：排名中包含不同日期的数据，请谨慎对比")
+            
     result.append("")
-    result.append(f"{'排名':<6} {'板块代码':<12} {'2日Alpha':<12} {'5日Alpha':<12} {'综合得分':<12} {'2日收益':<12} {'5日收益':<12}")
-    result.append("-" * 120)
+    
+    # 检查是否有name列
+    has_name = 'name' in df.columns
+    
+    if has_name:
+        result.append(f"{'排名':<6} {'板块代码':<12} {'板块名称':<12} {'当天Alpha':<12} {'2日Alpha':<12} {'5日Alpha':<12} {'综合得分':<12} {'当天收益':<12} {'2日收益':<12} {'5日收益':<12}")
+    else:
+        result.append(f"{'排名':<6} {'板块代码':<12} {'当天Alpha':<12} {'2日Alpha':<12} {'5日Alpha':<12} {'综合得分':<12} {'当天收益':<12} {'2日收益':<12} {'5日收益':<12}")
+    result.append("-" * 140)
     
     for _, row in df.iterrows():
         rank = f"{int(row['rank'])}"
         sector_code = row['sector_code']
+        
+        if has_name:
+            sector_name = str(row['name'])
+            # 截断过长的名称
+            if len(sector_name) > 6:
+                sector_name = sector_name[:6]
+        
+        alpha_1 = f"{row['alpha_1']*100:.2f}%" if pd.notna(row['alpha_1']) else "-"
         alpha_2 = f"{row['alpha_2']*100:.2f}%" if pd.notna(row['alpha_2']) else "-"
         alpha_5 = f"{row['alpha_5']*100:.2f}%" if pd.notna(row['alpha_5']) else "-"
         
-        # 计算综合得分（如果score为None或NaN，使用alpha_2作为得分）
-        # 直接使用alpha_2作为综合得分显示（因为5日数据不足）
-        if pd.notna(row['alpha_2']):
+        # 计算综合得分（使用score列）
+        if pd.notna(row['score']):
+            score = f"{row['score']*100:.2f}%"
+        elif pd.notna(row['alpha_2']):
+            # 备用方案：如果score缺失但alpha_2存在
             score = f"{row['alpha_2']*100:.2f}%"
         else:
             score = "-"
         
+        r_1 = f"{row['r_sector_1']*100:.2f}%" if pd.notna(row['r_sector_1']) else "-"
         r_2 = f"{row['r_sector_2']*100:.2f}%" if pd.notna(row['r_sector_2']) else "-"
         r_5 = f"{row['r_sector_5']*100:.2f}%" if pd.notna(row['r_sector_5']) else "-"
         
-        result.append(f"{rank:<6} {sector_code:<12} {alpha_2:<12} {alpha_5:<12} {score:<12} {r_2:<12} {r_5:<12}")
+        if has_name:
+            result.append(f"{rank:<6} {sector_code:<12} {sector_name:<12} {alpha_1:<12} {alpha_2:<12} {alpha_5:<12} {score:<12} {r_1:<12} {r_2:<12} {r_5:<12}")
+        else:
+            result.append(f"{rank:<6} {sector_code:<12} {alpha_1:<12} {alpha_2:<12} {alpha_5:<12} {score:<12} {r_1:<12} {r_2:<12} {r_5:<12}")
     
     result.append("")
     result.append("📝 说明：")

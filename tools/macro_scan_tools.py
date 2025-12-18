@@ -44,7 +44,8 @@ def register_macro_scan_tools(mcp: "FastMCP"):
             1. 市场量能判定 - 上证+深证全口径成交额对比
             2. 风格与赚钱效应 - 沪深300/国证2000/科创50 大小盘剪刀差
             3. 情绪极值探测 - 封板率、跌停家数、冰点期判定
-            4. 外部验证 - 纳指ETF/中概互联ETF折算外盘干扰
+            4. 龙虎榜机构态度 - 机构专用席位买入净额占比
+            5. 外部验证 - 纳指ETF/中概互联ETF折算外盘干扰
         """
         token = get_tushare_token()
         if not token:
@@ -59,6 +60,7 @@ def register_macro_scan_tools(mcp: "FastMCP"):
             volume_result = _analyze_market_volume(trade_date)
             style_result = _analyze_style_and_profit_effect(trade_date)
             sentiment_result = _analyze_sentiment_extremes(trade_date, seal_rate_warning, limit_down_warning, style_result)
+            inst_result = _analyze_institutional_sentiment(trade_date, volume_result.get("today_amount", 0))
             external_result = _analyze_external_validation(trade_date)
             
             # 生成综合报告
@@ -67,6 +69,7 @@ def register_macro_scan_tools(mcp: "FastMCP"):
                 volume_result,
                 style_result,
                 sentiment_result,
+                inst_result,
                 external_result
             )
             
@@ -410,6 +413,230 @@ def _analyze_sentiment_extremes(
     return result
 
 
+def _analyze_institutional_sentiment(trade_date: str, market_total_amount_billion: float = 0) -> Dict[str, Any]:
+    """
+    模块5: 龙虎榜机构态度 (新版重构)
+    
+    工具: top_list(每日明细), top_inst(机构明细)
+    分析维度:
+        1. net_buy (机构净买入): 宏观基本面资金的“投票权”
+        2. reason (上榜理由): 识别宏观波动的诱因
+        3. amount_rate (成交占比): 衡量热点对全市场的吸金效应 (龙虎榜总成交额 / 全市场总成交额)
+        4. exalter (席位名称): 识别“国家队”或“知名顶级机构”动作
+    """
+    result = {
+        "success": False,
+        "net_buy": {
+            "value": 0,
+            "status": "平稳"
+        },
+        "reason": {
+            "top_reasons": [],
+            "diagnosis": ""
+        },
+        "amount_rate": {
+            "top_list_amount": 0,
+            "market_total_amount": 0,
+            "ratio": 0,
+            "diagnosis": ""
+        },
+        "exalter": {
+            "key_institutions": [],  # 知名席位动作
+            "diagnosis": ""
+        },
+        "diagnosis": "",
+        "error": None
+    }
+    
+    try:
+        pro = ts.pro_api()
+        
+        # 1. 获取数据
+        top_list_df = pro.top_list(trade_date=trade_date)
+        top_inst_df = pro.top_inst(trade_date=trade_date)
+        
+        if top_list_df is None or top_list_df.empty:
+            result["diagnosis"] = "⚪ 今日无龙虎榜数据"
+            result["success"] = True
+            return result
+            
+        # ---------------------------------------------------------------------
+        # 分析维度1: net_buy (机构净买入)
+        # ---------------------------------------------------------------------
+        inst_net_buy = 0
+        inst_buy_rate = 0
+        
+        if top_inst_df is not None and not top_inst_df.empty:
+            inst_only = top_inst_df[top_inst_df['exalter'].str.contains('机构专用', na=False)]
+            if not inst_only.empty:
+                buy_sum = inst_only['buy'].sum()
+                sell_sum = inst_only['sell'].sum()
+                inst_net_buy = (buy_sum - sell_sum) / 10000  # 万元
+                if 'buy_rate' in inst_only.columns:
+                    inst_buy_rate = inst_only['buy_rate'].mean()
+        
+        # 判定状态
+        if inst_net_buy > 10000: # 1亿以上
+            if inst_buy_rate > 15:
+                net_buy_status = "🟢 机构极端共识 (宏观主线确认)"
+            else:
+                net_buy_status = "🟢 机构配置流入 (基石力量)"
+        elif inst_net_buy > 2000: # 2000万-1亿
+            net_buy_status = "🟢 机构参与活跃"
+        elif inst_net_buy < -10000:
+            net_buy_status = "🔴 机构协同抛售 (宏观风险释放)"
+        else:
+            net_buy_status = "🟡 存量博弈"
+            
+        result["net_buy"] = {
+            "value": inst_net_buy,
+            "status": net_buy_status
+        }
+        
+        # ---------------------------------------------------------------------
+        # 分析维度2: reason (上榜理由)
+        # ---------------------------------------------------------------------
+        if 'reason' in top_list_df.columns:
+            reasons = top_list_df['reason'].dropna().astype(str).tolist()
+            
+            # 关键词映射
+            categories = {
+                "波段趋势 (Trend)": ["连续三个交易日"],  # 这是宏观资金最核心的战场
+                "单日脉冲 (Impulse)": ["涨幅偏离", "涨幅达", "跌幅偏离", "跌幅达"],
+                "博弈换手 (Churn)": ["换手率", "振幅", "异常波动"],
+                "其它": []
+            }
+            
+            # 统计
+            cat_stats = {k: 0 for k in categories.keys()}
+            
+            for r in reasons:
+                found = False
+                for cat, keywords in categories.items():
+                    if any(kw in r for kw in keywords):
+                        cat_stats[cat] += 1
+                        found = True
+                        break
+                if not found:
+                    cat_stats["其它"] += 1
+            
+            # 找出主要诱因
+            sorted_cats = sorted(cat_stats.items(), key=lambda x: x[1], reverse=True)
+            top_cat = sorted_cats[0][0]
+            
+            top_reasons_list = [f"{k}({v})" for k, v in sorted_cats if v > 0]
+            
+            # 诊断逻辑重构
+            diagnosis = f"波动诱因: {top_cat}"
+            if top_cat == "波段趋势 (Trend)":
+                # 结合之前计算的 inst_net_buy
+                if inst_net_buy > 0:
+                    diagnosis = "宏观画像: 强趋势确认 (机构合力主推)"
+                else:
+                    diagnosis = "宏观画像: 情绪驱动的波段行情"
+            elif top_cat == "单日脉冲 (Impulse)":
+                diagnosis = "宏观画像: 突发消息刺激/情绪脉冲"
+            elif top_cat == "博弈换手 (Churn)":
+                diagnosis = "宏观画像: 分歧加大 (高换手博弈)"
+                
+            result["reason"] = {
+                "top_reasons": top_reasons_list[:3],
+                "diagnosis": diagnosis
+            }
+        
+        # ---------------------------------------------------------------------
+        # 分析维度3: amount_rate (成交占比)
+        # ---------------------------------------------------------------------
+        # 龙虎榜总成交额 (amount 字段通常是总成交额，如果没有则用 l_buy+l_sell 近似，但 amount 更准)
+        # 注意去重：同一只股票可能有多条记录
+        top_list_dedup = top_list_df.drop_duplicates(subset=['ts_code'])
+        list_amount = top_list_dedup['amount'].sum() / 100000000  # 亿元
+        
+        # 全市场总成交额 (传入参数，单位亿元)
+        market_amount = market_total_amount_billion
+        
+        ratio = 0
+        amt_diagnosis = ""
+        
+        if market_amount > 0:
+            ratio = (list_amount / market_amount) * 100
+            
+            if ratio > 15:
+                amt_diagnosis = "🔴 极度吸金 (流动性枯竭风险)"
+            elif ratio > 10:
+                amt_diagnosis = "🟡 热点吸金明显"
+            elif ratio < 2:
+                amt_diagnosis = "🔵 游资活跃度低"
+            else:
+                amt_diagnosis = "🟢 流动性分布健康"
+        else:
+            amt_diagnosis = "⚠️ 无法计算 (缺全市场数据)"
+            
+        result["amount_rate"] = {
+            "top_list_amount": list_amount,
+            "market_total_amount": market_amount,
+            "ratio": ratio,
+            "diagnosis": amt_diagnosis
+        }
+        
+        # ---------------------------------------------------------------------
+        # 分析维度4: exalter (重点席位)
+        # ---------------------------------------------------------------------
+        key_institutions = []
+        inst_diagnosis = "常规博弈"
+        
+        if top_inst_df is not None and not top_inst_df.empty:
+            # 定义关注名单
+            # 注意：实际龙虎榜中“国家队”往往隐身或使用特定席位，这里列举常见头部/代表性席位
+            watch_list = [
+                "中信证券股份有限公司总部", "中金公司", "中央汇金", 
+                "沪股通专用", "深股通专用", # 北向
+                "国泰君安证券股份有限公司总部", "中国银河证券股份有限公司总部"
+            ]
+            
+            # 扫描
+            for inst_name in watch_list:
+                # 模糊匹配
+                matched = top_inst_df[top_inst_df['exalter'].str.contains(inst_name, na=False)]
+                if not matched.empty:
+                    # 统计动作
+                    buy = matched[matched['side'] == 0]['buy'].sum()
+                    sell = matched[matched['side'] == 1]['sell'].sum()
+                    net = buy - sell
+                    
+                    if buy + sell > 0: # 有操作
+                        action = "买入" if net > 0 else "卖出"
+                        amt = abs(net) / 10000 # 万元
+                        key_institutions.append(f"{inst_name[:4]}: 净{action} {amt:.0f}万")
+            
+            if len(key_institutions) > 0:
+                inst_diagnosis = "🔥 顶级资金现身"
+            else:
+                inst_diagnosis = "常规机构博弈"
+
+        result["exalter"] = {
+            "key_institutions": key_institutions[:5], # 只取前5个
+            "diagnosis": inst_diagnosis
+        }
+        
+        result["success"] = True
+        
+        # 生成模块综合诊断
+        diags = []
+        diags.append(net_buy_status.split(' ')[0]) # 🟢/🔴
+        if result["amount_rate"]["ratio"] > 10:
+            diags.append("热点吸金")
+        if len(key_institutions) > 0:
+            diags.append("主力现身")
+            
+        result["diagnosis"] = " ".join(diags)
+            
+    except Exception as e:
+        result["error"] = str(e)
+        
+    return result
+
+
 def _analyze_external_validation(trade_date: str) -> Dict[str, Any]:
     """
     模块4: 外部验证 (ETF折算)
@@ -466,6 +693,7 @@ def _format_macro_scan_report(
     volume_result: Dict[str, Any],
     style_result: Dict[str, Any],
     sentiment_result: Dict[str, Any],
+    inst_result: Dict[str, Any],
     external_result: Dict[str, Any]
 ) -> str:
     """格式化宏观全景扫描报告"""
@@ -537,9 +765,39 @@ def _format_macro_scan_report(
     else:
         lines.append(f"- ⚠️ 数据获取失败: {sentiment_result.get('error', '未知错误')}")
     lines.append("")
+
+    # 模块4: 龙虎榜机构态度
+    lines.append("【四、龙虎榜机构态度】")
+    if inst_result["success"]:
+        net_buy = inst_result["net_buy"]
+        reason = inst_result["reason"]
+        amount_rate = inst_result["amount_rate"]
+        exalter = inst_result["exalter"]
+        
+        # 1. 机构净买入
+        lines.append(f"1. 机构净买 (net_buy): {net_buy['value']:+.1f} 万元")
+        lines.append(f"   • 状态: {net_buy['status']}")
+        
+        # 2. 上榜理由
+        lines.append(f"2. 上榜理由 (reason): {reason['diagnosis']}")
+        if reason['top_reasons']:
+            lines.append(f"   • 分布: {', '.join(reason['top_reasons'])}")
+            
+        # 3. 成交占比
+        lines.append(f"3. 成交占比 (amount_rate): {amount_rate['ratio']:.2f}% (龙虎榜/全市场)")
+        lines.append(f"   • 诊断: {amount_rate['diagnosis']}")
+        
+        # 4. 重点席位
+        lines.append(f"4. 重点席位 (exalter): {exalter['diagnosis']}")
+        if exalter['key_institutions']:
+            lines.append(f"   • 动作: {', '.join(exalter['key_institutions'])}")
+        
+    else:
+        lines.append(f"- ⚠️ 数据获取失败: {inst_result.get('error', '未知错误')}")
+    lines.append("")
     
-    # 模块4: 外部验证
-    lines.append("【四、外部验证】")
+    # 模块5: 外部验证
+    lines.append("【五、外部验证】")
     if external_result["success"]:
         lines.append("| ETF           | 涨跌幅        | 收盘价       |")
         lines.append("|--------------|--------------|-------------|")
@@ -586,6 +844,23 @@ def _format_macro_scan_report(
             overall_score += 1
         elif sentiment_result["seal_rate"] < 60:
             issues.append("封板率偏低")
+    
+    if inst_result["success"]:
+        # 机构净买入状态
+        net_buy_val = inst_result["net_buy"]["value"]
+        if net_buy_val > 5000: # 5000万
+            overall_score += 1
+        elif net_buy_val < -5000:
+            overall_score -= 1
+            issues.append("机构抛压")
+            
+        # 虹吸效应风险
+        if inst_result["amount_rate"]["ratio"] > 15:
+            issues.append("热点虹吸严重")
+            
+        # 主力动作
+        if "顶级资金" in inst_result["exalter"]["diagnosis"]:
+            overall_score += 1 # 权重加分
     
     if external_result["success"]:
         avg_pct = (external_result["nasdaq_etf"]["pct_chg"] + external_result["china_internet_etf"]["pct_chg"]) / 2

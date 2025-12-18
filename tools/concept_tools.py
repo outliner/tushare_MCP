@@ -215,15 +215,16 @@ def format_concept_member_data(df: pd.DataFrame, show_date: bool = True, show_co
     
     return "\n".join(result)
 
-def get_concept_codes(trade_date: str = None) -> List[str]:
+def get_dc_board_codes(trade_date: str = None, board_type: str = '概念板块') -> List[str]:
     """
-    获取所有东财概念板块代码列表
+    获取东财板块代码列表（支持概念、行业、地域）
     
     参数:
         trade_date: 交易日期（YYYYMMDD格式，默认今天）
+        board_type: 板块类型（概念板块、行业板块、地域板块）
     
     返回:
-        概念板块代码列表
+        板块代码列表
     """
     token = get_tushare_token()
     if not token:
@@ -234,15 +235,20 @@ def get_concept_codes(trade_date: str = None) -> List[str]:
     
     try:
         # 优先从缓存获取数据
-        df = concept_cache_manager.get_concept_index_data(trade_date=trade_date)
+        df = concept_cache_manager.get_concept_daily_data(trade_date=trade_date, idx_type=board_type)
         
         # 如果缓存中没有数据，从API获取
         if df is None or df.empty:
             pro = ts.pro_api()
-            df = pro.dc_index(trade_date=trade_date)
+            # dc_daily 接口支持 idx_type 参数
+            # 注意：单次限量2000条。如果板块数量超过2000，可能不完整。
+            # 但目前概念板块约400+，行业和地域更少，应该没问题。
+            # 如果真的超过，Tushare通常需要分页，但dc_daily似乎不支持offset，只支持日期范围。
+            # 在单日查询情况下，如果返回2000条，可能截断。
+            df = pro.dc_daily(trade_date=trade_date, idx_type=board_type)
             # 保存到缓存
             if not df.empty:
-                concept_cache_manager.save_concept_index_data(df)
+                concept_cache_manager.save_concept_daily_data(df)
         
         if df.empty:
             return []
@@ -254,8 +260,155 @@ def get_concept_codes(trade_date: str = None) -> List[str]:
         
         return []
     except Exception as e:
-        print(f"获取概念板块代码失败: {str(e)}", file=__import__('sys').stderr)
+        print(f"获取{board_type}代码失败: {str(e)}", file=__import__('sys').stderr)
         return []
+
+def get_concept_codes(trade_date: str = None) -> List[str]:
+    """
+    获取所有东财概念板块代码列表（兼容旧接口）
+    """
+    return get_dc_board_codes(trade_date, board_type='概念板块')
+
+def get_hot_dc_board_codes(trade_date: str = None, limit: int = 30, board_type: str = '概念板块') -> List[str]:
+    """
+    获取热门东财板块代码列表（基于综合潜力得分CP_Score筛选）
+    
+    注意：
+    - '概念板块' 优先尝试使用 dc_index 接口获取更详细数据（领涨股、涨跌家数等）
+    - '行业板块' 和 '地域板块' 使用 dc_daily 接口（仅有基础行情），评分算法会降级
+    
+    参数:
+        trade_date: 交易日期（YYYYMMDD格式，默认今天）
+        limit: 返回的热门板块数量（默认30）
+        board_type: 板块类型（概念板块、行业板块、地域板块）
+    
+    返回:
+        热门板块代码列表
+    """
+    token = get_tushare_token()
+    if not token:
+        return []
+    
+    if trade_date is None:
+        trade_date = datetime.now().strftime('%Y%m%d')
+    
+    try:
+        df = None
+        use_simple_score = False
+        
+        # 1. 如果是概念板块，优先尝试获取详细数据 (dc_index)
+        if board_type == '概念板块':
+            try:
+                # 尝试从缓存获取 dc_index 数据
+                df = concept_cache_manager.get_concept_index_data(trade_date=trade_date)
+                if df is None or df.empty:
+                    pro = ts.pro_api()
+                    df = pro.dc_index(trade_date=trade_date)
+                    if not df.empty:
+                        concept_cache_manager.save_concept_index_data(df)
+            except Exception:
+                # 获取详细数据失败，回退到 dc_daily
+                pass
+        
+        # 2. 如果没有获取到数据（不是概念板块，或者dc_index获取失败），使用 dc_daily
+        if df is None or df.empty:
+            use_simple_score = True
+            # 尝试从缓存获取 dc_daily 数据
+            df = concept_cache_manager.get_concept_daily_data(trade_date=trade_date, idx_type=board_type)
+            if df is None or df.empty:
+                pro = ts.pro_api()
+                df = pro.dc_daily(trade_date=trade_date, idx_type=board_type)
+                if not df.empty:
+                    concept_cache_manager.save_concept_daily_data(df)
+        
+        if df.empty:
+            return []
+        
+        if 'ts_code' not in df.columns:
+            return []
+        
+        # ==========================
+        # 数据清洗与预处理
+        # ==========================
+        data = df.copy()
+        
+        # 剔除极小市值板块（如果有total_mv字段）
+        if 'total_mv' in data.columns:
+            # 50亿 ~ 5000亿
+            data = data[(data['total_mv'] > 500000) & (data['total_mv'] < 50000000)]
+        
+        if data.empty:
+            return []
+            
+        # ==========================
+        # 计算分项排名得分 (0 ~ 1)
+        # ==========================
+        
+        # 1. 趋势得分：涨跌幅排名 (Trend)
+        if 'pct_change' in data.columns:
+            data['score_trend'] = data['pct_change'].rank(pct=True, na_option='keep')
+        else:
+            data['score_trend'] = 0.5
+            
+        # 2. 热度得分：换手率排名 (Heat)
+        # 注意：dc_daily 和 dc_index 都有 turnover_rate
+        if 'turnover_rate' in data.columns:
+            data['score_heat'] = data['turnover_rate'].rank(pct=True, na_option='keep')
+        else:
+            data['score_heat'] = 0.5
+            
+        if use_simple_score:
+            # 简易模式（行业/地域板块）：仅基于趋势(60%)和热度(40%)
+            data['cp_score'] = 0.6 * data['score_trend'] + 0.4 * data['score_heat']
+        else:
+            # 完整模式（概念板块）：包含领涨股和广度得分
+            
+            # 3. 领涨得分 (Leader)
+            if 'leading_pct' in data.columns:
+                data['score_leader'] = data['leading_pct'].rank(pct=True, na_option='keep')
+            else:
+                data['score_leader'] = 0.5
+                
+            # 4. 广度得分 (Breadth)
+            if 'up_num' in data.columns and 'down_num' in data.columns:
+                up_num = data['up_num'].fillna(0)
+                down_num = data['down_num'].fillna(0)
+                data['up_ratio'] = up_num / (up_num + down_num + 0.0001)
+                data['score_breadth'] = data['up_ratio'].rank(pct=True, na_option='keep')
+            else:
+                data['score_breadth'] = 0.5
+            
+            # 填充缺失值
+            data['score_trend'] = data['score_trend'].fillna(0.5)
+            data['score_heat'] = data['score_heat'].fillna(0.5)
+            data['score_leader'] = data['score_leader'].fillna(0.5)
+            data['score_breadth'] = data['score_breadth'].fillna(0.5)
+            
+            # 计算综合 CP_Score
+            data['cp_score'] = (
+                0.4 * data['score_trend'] +
+                0.3 * data['score_heat'] +
+                0.2 * data['score_leader'] +
+                0.1 * data['score_breadth']
+            )
+        
+        # ==========================
+        # 输出结果
+        # ==========================
+        result = data.sort_values(by='cp_score', ascending=False).head(limit)
+        codes = result['ts_code'].unique().tolist()
+        return sorted(codes)
+        
+    except Exception as e:
+        import sys
+        print(f"获取热门{board_type}代码失败: {str(e)}", file=sys.stderr)
+        return get_dc_board_codes(trade_date, board_type)
+
+def get_hot_concept_codes(trade_date: str = None, limit: int = 30) -> List[str]:
+    """
+    获取热门东财概念板块代码列表（兼容旧接口）
+    """
+    return get_hot_dc_board_codes(trade_date, limit, board_type='概念板块')
 
 def format_concept_alpha_analysis(df: pd.DataFrame) -> str:
     """
@@ -272,15 +425,17 @@ def format_concept_alpha_analysis(df: pd.DataFrame) -> str:
     
     result = []
     result.append("📊 相对强度Alpha模型分析结果")
-    result.append("=" * 150)
+    result.append("=" * 160)
     result.append("")
-    result.append(f"{'排名':<6} {'板块代码':<12} {'板块名称':<20} {'2日Alpha':<12} {'5日Alpha':<12} {'综合得分':<12} {'2日收益':<12} {'5日收益':<12} {'今日涨跌':<10} {'换手率':<10}")
-    result.append("-" * 150)
+    result.append(f"{'排名':<6} {'板块代码':<12} {'板块名称':<20} {'今日Alpha':<12} {'2日Alpha':<12} {'5日Alpha':<12} {'综合得分':<12} {'2日收益':<12} {'5日收益':<12} {'今日涨跌':<10} {'换手率':<10}")
+    result.append("-" * 160)
     
     for _, row in df.iterrows():
         rank = f"{int(row['rank'])}"
         sector_code = row['sector_code']
         name = str(row.get('name', sector_code))[:18] if 'name' in row else sector_code
+        
+        alpha_1 = f"{row['alpha_1']*100:.2f}%" if 'alpha_1' in row and pd.notna(row['alpha_1']) else "-"
         alpha_2 = f"{row['alpha_2']*100:.2f}%" if pd.notna(row['alpha_2']) else "-"
         alpha_5 = f"{row['alpha_5']*100:.2f}%" if pd.notna(row['alpha_5']) else "-"
         
@@ -301,7 +456,7 @@ def format_concept_alpha_analysis(df: pd.DataFrame) -> str:
         # 换手率
         turnover = f"{row.get('turnover', 0):.2f}%" if 'turnover' in row and pd.notna(row.get('turnover')) else "-"
         
-        result.append(f"{rank:<6} {sector_code:<12} {name:<20} {alpha_2:<12} {alpha_5:<12} {score:<12} {r_2:<12} {r_5:<12} {pct_change:<10} {turnover:<10}")
+        result.append(f"{rank:<6} {sector_code:<12} {name:<20} {alpha_1:<12} {alpha_2:<12} {alpha_5:<12} {score:<12} {r_2:<12} {r_5:<12} {pct_change:<10} {turnover:<10}")
     
     result.append("")
     result.append("📝 说明：")
@@ -310,141 +465,10 @@ def format_concept_alpha_analysis(df: pd.DataFrame) -> str:
     result.append("  - 得分越高，表示板块相对大盘越强势")
     result.append("  - 建议关注得分前5-10名的板块")
     result.append("")
-    result.append(f"📊 统计：共分析 {len(df)} 个概念板块，其中 {len(df[df['alpha_5'].notna()])} 个板块有5日数据")
+    result.append(f"📊 统计：共分析 {len(df)} 个板块，其中 {len(df[df['alpha_5'].notna()])} 个板块有5日数据")
     
     return "\n".join(result)
 
-def get_hot_concept_codes(trade_date: str = None, limit: int = 30) -> List[str]:
-    """
-    获取热门东财概念板块代码列表（基于综合潜力得分CP_Score筛选）
-    
-    使用综合潜力得分(CP_Score)算法：
-    - 趋势得分(40%): 涨跌幅排名
-    - 热度得分(30%): 换手率排名
-    - 领涨得分(20%): 领涨股票涨跌幅排名
-    - 广度得分(10%): 普涨率排名
-    
-    参数:
-        trade_date: 交易日期（YYYYMMDD格式，默认今天）
-        limit: 返回的热门板块数量（默认30）
-    
-    返回:
-        热门概念板块代码列表
-    """
-    token = get_tushare_token()
-    if not token:
-        return []
-    
-    if trade_date is None:
-        trade_date = datetime.now().strftime('%Y%m%d')
-    
-    try:
-        # 优先从缓存获取数据
-        df = concept_cache_manager.get_concept_index_data(trade_date=trade_date)
-        
-        # 如果缓存中没有数据，从API获取
-        if df is None or df.empty:
-            pro = ts.pro_api()
-            df = pro.dc_index(trade_date=trade_date)
-            # 保存到缓存
-            if not df.empty:
-                concept_cache_manager.save_concept_index_data(df)
-        
-        if df.empty:
-            return []
-        
-        if 'ts_code' not in df.columns:
-            return []
-        
-        # ==========================
-        # 1. 数据清洗与预处理
-        # ==========================
-        data = df.copy()
-        
-        # 预计算普涨率 (Breadth)
-        # 防止除以0，分母加一个小极值
-        if 'up_num' in data.columns and 'down_num' in data.columns:
-            # 填充缺失值为0
-            up_num = data['up_num'].fillna(0)
-            down_num = data['down_num'].fillna(0)
-            data['up_ratio'] = up_num / (up_num + down_num + 0.0001)
-        else:
-            # 如果没有上涨/下跌家数数据，使用默认值0.5
-            data['up_ratio'] = 0.5
-        
-        # ==========================
-        # 2. 预筛选 (硬门槛)
-        # ==========================
-        # 剔除极小市值板块（容易被操纵，数据失真）和极大市值板块（大象难起舞）
-        # total_mv 单位是万元，保留 50亿 ~ 5000亿 之间的板块
-        # 50亿 = 500000万元，5000亿 = 50000000万元
-        if 'total_mv' in data.columns:
-            data = data[(data['total_mv'] > 500000) & (data['total_mv'] < 50000000)]
-        
-        # 剔除当天大跌的板块（可选，根据需求决定是否启用）
-        # if 'pct_change' in data.columns:
-        #     data = data[data['pct_change'] > -2.0]
-        
-        if data.empty:
-            return []
-        
-        # ==========================
-        # 3. 计算分项排名得分 (0 ~ 1)
-        # ==========================
-        # pct=True 表示生成百分位排名，最大值为1，最小值为0
-        
-        # 趋势得分：涨跌幅排名
-        if 'pct_change' in data.columns:
-            data['score_trend'] = data['pct_change'].rank(pct=True, na_option='keep')
-        else:
-            data['score_trend'] = 0.5  # 默认中等得分
-        
-        # 热度得分：换手率排名
-        if 'turnover_rate' in data.columns:
-            data['score_heat'] = data['turnover_rate'].rank(pct=True, na_option='keep')
-        else:
-            data['score_heat'] = 0.5  # 默认中等得分
-        
-        # 领涨得分：领涨股票涨跌幅排名
-        if 'leading_pct' in data.columns:
-            data['score_leader'] = data['leading_pct'].rank(pct=True, na_option='keep')
-        else:
-            data['score_leader'] = 0.5  # 默认中等得分
-        
-        # 广度得分：普涨率排名
-        data['score_breadth'] = data['up_ratio'].rank(pct=True, na_option='keep')
-        
-        # 填充缺失值（如果有）
-        data['score_trend'] = data['score_trend'].fillna(0.5)
-        data['score_heat'] = data['score_heat'].fillna(0.5)
-        data['score_leader'] = data['score_leader'].fillna(0.5)
-        data['score_breadth'] = data['score_breadth'].fillna(0.5)
-        
-        # ==========================
-        # 4. 计算综合 CP_Score
-        # ==========================
-        data['cp_score'] = (
-            0.4 * data['score_trend'] +
-            0.3 * data['score_heat'] +
-            0.2 * data['score_leader'] +
-            0.1 * data['score_breadth']
-        )
-        
-        # ==========================
-        # 5. 输出结果
-        # ==========================
-        # 按得分降序排列，取前limit个
-        result = data.sort_values(by='cp_score', ascending=False).head(limit)
-        
-        # 提取板块代码
-        codes = result['ts_code'].unique().tolist()
-        return sorted(codes)
-        
-    except Exception as e:
-        import sys
-        print(f"获取热门概念板块代码失败: {str(e)}", file=sys.stderr)
-        # 如果筛选失败，返回所有板块代码（降级处理）
-        return get_concept_codes(trade_date)
 
 def analyze_concept_volume_anomaly(
     concept_code: str,
@@ -755,7 +779,7 @@ def register_concept_tools(mcp: "FastMCP"):
         end_date: str = ""
     ) -> str:
         """
-        获取东方财富概念板块行情数据
+        获取东方财富概念板块行情数据（仅概念板块）
         
         参数:
             ts_code: 指数代码（支持多个代码同时输入，用逗号分隔，如：BK1186.DC,BK1185.DC）
@@ -765,6 +789,8 @@ def register_concept_tools(mcp: "FastMCP"):
             end_date: 结束日期（YYYYMMDD格式，如：20250131，需与start_date配合使用）
         
         注意:
+            - 本接口主要用于查询“概念板块”的详细数据（包含领涨股等信息）
+            - 如果需要查询“行业板块”或“地域板块”，请使用 get_eastmoney_concept_daily 工具
             - 如果提供了trade_date，将查询该特定日期的数据
             - 如果提供了start_date和end_date，将查询该日期范围内的数据
             - trade_date优先级高于start_date/end_date
@@ -1217,10 +1243,10 @@ def register_concept_tools(mcp: "FastMCP"):
         end_date: str = ""
     ) -> str:
         """
-        分析单个东财概念板块的相对强度Alpha
+        分析单个东财板块的相对强度Alpha（支持概念、行业、地域）
         
         参数:
-            concept_code: 概念板块代码（如：BK1184.DC人形机器人、BK1186.DC首发经济等）
+            concept_code: 板块代码（如：BK1184.DC人形机器人、BK1186.DC首发经济等）
             benchmark_code: 基准指数代码（默认：000300.SH沪深300）
             end_date: 结束日期（YYYYMMDD格式，如：20241124，默认今天）
         
@@ -1233,7 +1259,7 @@ def register_concept_tools(mcp: "FastMCP"):
             - 综合得分 = Alpha_2 × 60% + Alpha_5 × 40%
         """
         if not concept_code:
-            return "请提供概念板块代码(如：BK1184.DC、BK1186.DC等)"
+            return "请提供板块代码(如：BK1184.DC、BK1186.DC等)"
         
         # 如果end_date为空，使用None让analyze_sector_alpha使用默认值
         if end_date == "":
@@ -1325,22 +1351,24 @@ def register_concept_tools(mcp: "FastMCP"):
         benchmark_code: str = "000300.SH",
         end_date: str = "",
         top_n: int = 20,
-        hot_limit: int = 80
+        hot_limit: int = 80,
+        board_type: str = "概念板块"
     ) -> str:
         """
-        对热门东财概念板块进行Alpha排名（仅查询热门概念板块以减少计算量）
+        对热门东财板块进行Alpha排名（支持概念、行业、地域）
         
         参数:
             benchmark_code: 基准指数代码（默认：000300.SH沪深300）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
             top_n: 显示前N名（默认20）
-            hot_limit: 筛选的热门概念板块数量（默认200，根据成交额和换手率筛选）
+            hot_limit: 筛选的热门板块数量（默认80，根据成交额和换手率筛选）
+            board_type: 板块类型（可选：概念板块、行业板块、地域板块，默认概念板块）
         
         返回:
             包含排名结果的格式化字符串
         
         说明:
-            - 自动获取指定日期的热门概念板块（根据成交额和换手率筛选）
+            - 自动获取指定日期的热门板块（根据成交额和换手率筛选）
             - 按综合得分降序排列
             - 显示前N名强势板块
             - 仅分析热门板块以减少计算量，提高响应速度
@@ -1354,12 +1382,12 @@ def register_concept_tools(mcp: "FastMCP"):
             end_date = None
         
         try:
-            # 获取热门概念板块代码列表（根据成交额和换手率筛选）
+            # 获取热门板块代码列表（根据成交额和换手率筛选）
             trade_date_str = end_date if end_date else datetime.now().strftime('%Y%m%d')
-            concept_codes = get_hot_concept_codes(trade_date_str, limit=hot_limit)
+            concept_codes = get_hot_dc_board_codes(trade_date_str, limit=hot_limit, board_type=board_type)
             
             if not concept_codes:
-                return "无法获取热门概念板块列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
+                return f"无法获取热门{board_type}列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
             
             # 进行Alpha排名
             df = rank_sectors_alpha(concept_codes, benchmark_code, end_date)
@@ -1378,8 +1406,23 @@ def register_concept_tools(mcp: "FastMCP"):
                 pro = ts.pro_api()
                 concept_codes_str = ','.join(df_display['sector_code'].tolist())
                 
-                # 直接使用API查询，不通过缓存管理器（因为可能不支持多代码查询）
-                concept_df = pro.dc_index(ts_code=concept_codes_str, trade_date=trade_date_str)
+                # 获取详细信息
+                # 如果是概念板块，尝试用 dc_index（有名称）
+                # 如果是其他，尝试用 dc_daily
+                concept_df = pd.DataFrame()
+                
+                if board_type == '概念板块':
+                    try:
+                        concept_df = pro.dc_index(ts_code=concept_codes_str, trade_date=trade_date_str)
+                    except:
+                        pass
+                
+                if concept_df.empty:
+                    # 尝试用 dc_daily
+                    concept_df = pro.dc_daily(trade_date=trade_date_str, idx_type=board_type)
+                    # 筛选出我们需要的代码
+                    if not concept_df.empty and 'ts_code' in concept_df.columns:
+                        concept_df = concept_df[concept_df['ts_code'].isin(df_display['sector_code'].tolist())]
                 
                 # 创建板块代码到名称的映射
                 name_map = {}
@@ -1390,10 +1433,12 @@ def register_concept_tools(mcp: "FastMCP"):
                 if not concept_df.empty and 'ts_code' in concept_df.columns:
                     for _, row in concept_df.iterrows():
                         code = row['ts_code']
-                        name_map[code] = row.get('name', code) if pd.notna(row.get('name')) else code
+                        # dc_daily 可能没有 name 字段，如果有就用，没有就用代码代替
+                        name = row.get('name', code) if pd.notna(row.get('name')) else code
+                        name_map[code] = name
                         pct_map[code] = row.get('pct_change', 0) if pd.notna(row.get('pct_change')) else 0
                         amount_map[code] = row.get('amount', 0) if pd.notna(row.get('amount')) else 0
-                        turnover_map[code] = row.get('turnover', 0) if pd.notna(row.get('turnover')) else 0
+                        turnover_map[code] = row.get('turnover_rate', row.get('turnover', 0)) if pd.notna(row.get('turnover_rate', row.get('turnover'))) else 0
                 
                 # 添加板块名称等信息到DataFrame
                 df_display['name'] = df_display['sector_code'].map(name_map).fillna(df_display['sector_code'])
@@ -1415,9 +1460,9 @@ def register_concept_tools(mcp: "FastMCP"):
             
             # 如果只显示了部分，添加提示
             if top_n < len(df):
-                result += f"\n\n（共分析 {len(df)} 个热门概念板块，仅显示前 {top_n} 名）"
+                result += f"\n\n（共分析 {len(df)} 个热门{board_type}，仅显示前 {top_n} 名）"
             else:
-                result += f"\n\n（共分析 {len(df)} 个热门概念板块）"
+                result += f"\n\n（共分析 {len(df)} 个热门{board_type}）"
             
             result += f"\n（从热门板块中筛选，筛选标准：成交额和换手率，筛选数量：{hot_limit}）"
             
@@ -1431,14 +1476,16 @@ def register_concept_tools(mcp: "FastMCP"):
     @mcp.tool()
     def rank_concepts_alpha_velocity(
         benchmark_code: str = "000300.SH",
-        end_date: str = ""
+        end_date: str = "",
+        board_type: str = "概念板块"
     ) -> str:
         """
-        分析东财概念板块Alpha排名上升速度
+        分析东财板块Alpha排名上升速度（支持概念、行业、地域）
         
         参数:
             benchmark_code: 基准指数代码（默认：000300.SH沪深300）
             end_date: 结束日期（YYYYMMDD格式，默认今天）
+            board_type: 板块类型（可选：概念板块、行业板块、地域板块，默认概念板块）
         
         返回:
             包含排名上升速度的格式化字符串，包括：
@@ -1449,7 +1496,7 @@ def register_concept_tools(mcp: "FastMCP"):
             - 两天内上升位数排行
         
         说明:
-            - 自动获取指定日期的所有概念板块
+            - 自动获取指定日期的所有板块
             - 计算排名上升速度（当天对比前一天和前两天的排名变化）
             - 正数表示排名上升，负数表示排名下降
         """
@@ -1462,11 +1509,11 @@ def register_concept_tools(mcp: "FastMCP"):
             if end_date == "":
                 end_date = None
             
-            # 获取概念板块代码列表
-            concept_codes = get_concept_codes(end_date or datetime.now().strftime('%Y%m%d'))
+            # 获取板块代码列表
+            concept_codes = get_dc_board_codes(end_date or datetime.now().strftime('%Y%m%d'), board_type=board_type)
             
             if not concept_codes:
-                return "无法获取概念板块列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
+                return f"无法获取{board_type}列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
             
             # 计算排名上升速度
             df = calculate_alpha_rank_velocity(concept_codes, benchmark_code, end_date)
@@ -1500,7 +1547,7 @@ def register_concept_tools(mcp: "FastMCP"):
             
             # 格式化输出
             output = []
-            output.append("📊 东财概念板块Alpha排名上升速度分析")
+            output.append(f"📊 东财{board_type}Alpha排名上升速度分析")
             output.append("=" * 120)
             output.append("")
             output.append(f"📅 分析日期：")
@@ -1599,7 +1646,7 @@ def register_concept_tools(mcp: "FastMCP"):
                 output.append(f"  - 对比日期2：{day_before_yesterday_date_display} ({day_before_yesterday_date})")
             output.append("  - 建议关注排名变化较大的板块，可能具有较强动能")
             output.append("")
-            output.append(f"📊 统计：共分析 {len(df)} 个概念板块")
+            output.append(f"📊 统计：共分析 {len(df)} 个{board_type}")
             
             return "\n".join(output)
             
