@@ -1425,8 +1425,17 @@ def register_concept_tools(mcp: "FastMCP"):
                     except:
                         pass
                 
+                # 如果不是概念板块，或者dc_index获取失败，或者数据为空
                 if concept_df.empty:
                     # 尝试用 dc_daily
+                    # dc_daily 返回的数据中没有 name 字段，需要单独处理
+                    # 对于行业和地域板块，dc_daily 返回的 ts_code 就是板块代码
+                    # 但是 dc_daily 接口不返回板块名称，这是一个问题
+                    # 我们需要找到另一种方式获取板块名称，或者接受这里没有名称
+                    
+                    # 尝试从 concept_cache_manager 中获取名称映射
+                    # 或者，如果之前调用 get_dc_board_codes 时有缓存数据
+                    
                     concept_df = pro.dc_daily(trade_date=trade_date_str, idx_type=board_type)
                     # 筛选出我们需要的代码
                     if not concept_df.empty and 'ts_code' in concept_df.columns:
@@ -1438,12 +1447,38 @@ def register_concept_tools(mcp: "FastMCP"):
                 amount_map = {}
                 turnover_map = {}
                 
+                # 特殊处理：地域板块和行业板块的名称映射
+                # 由于 dc_daily 不返回名称，我们需要构建一个映射
+                # 这里暂时无法从API获取所有板块名称映射，
+                # 但如果之前通过 get_eastmoney_concept_board 获取过数据，可能在缓存里
+                
+                # 尝试通过 get_concept_moneyflow_dc 接口获取名称（如果支持的话）
+                # 或者通过其他方式
+                
+                # 临时解决方案：如果 concept_df 中没有 name 列，尝试查找是否有 name 字段
+                # 如果都没有，只能显示代码
+                
+                # 实际上，东财板块的名称通常可以通过代码查询，但在 MCP 工具中可能受限
+                # 我们尝试从资金流向接口获取名称，因为那里有 name 字段
+                if board_type in ['地域板块', '行业板块'] and (concept_df.empty or 'name' not in concept_df.columns):
+                    try:
+                        mf_df = pro.moneyflow_ind_dc(trade_date=trade_date_str, content_type=board_type)
+                        if not mf_df.empty:
+                            for _, row in mf_df.iterrows():
+                                if row['ts_code'] in df_display['sector_code'].tolist():
+                                    name_map[row['ts_code']] = row['name']
+                    except:
+                        pass
+
                 if not concept_df.empty and 'ts_code' in concept_df.columns:
                     for _, row in concept_df.iterrows():
                         code = row['ts_code']
-                        # dc_daily 可能没有 name 字段，如果有就用，没有就用代码代替
-                        name = row.get('name', code) if pd.notna(row.get('name')) else code
-                        name_map[code] = name
+                        # dc_daily 可能没有 name 字段
+                        # 如果 name_map 中已经有（从资金流向获取的），优先使用
+                        if code not in name_map:
+                            name = row.get('name', code) if pd.notna(row.get('name')) else code
+                            name_map[code] = name
+                        
                         pct_map[code] = row.get('pct_change', 0) if pd.notna(row.get('pct_change')) else 0
                         amount_map[code] = row.get('amount', 0) if pd.notna(row.get('amount')) else 0
                         turnover_map[code] = row.get('turnover_rate', row.get('turnover', 0)) if pd.notna(row.get('turnover_rate', row.get('turnover'))) else 0
