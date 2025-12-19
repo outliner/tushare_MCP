@@ -158,12 +158,42 @@ def analyze_sector_alpha(
                 end_date=end_date
             )
             
-            if sector_df is None or sector_df.empty:
-                # 从API获取
+            if sector_df is None or len(sector_df) < 15:
                 pro = ts.pro_api()
-                sector_df = pro.dc_daily(ts_code=sector_code, start_date=start_date, end_date=end_date)
-                if not sector_df.empty:
-                    # 保存到专用缓存管理器
+                idx_type = None
+                
+                # 尝试推断或轮询 idx_type
+                types_to_try = ['概念板块', '行业板块', '地域板块']
+                
+                # 简单的优化：根据代码前缀调整尝试顺序
+                if sector_code.startswith('BK1'): 
+                    types_to_try = ['概念板块', '行业板块', '地域板块']
+                elif sector_code.startswith('BK0'):
+                    types_to_try = ['行业板块', '地域板块', '概念板块']
+                    
+                for it in types_to_try:
+                    try:
+                        df = pro.dc_daily(ts_code=sector_code, start_date=start_date, end_date=end_date, idx_type=it)
+                        if not df.empty and len(df) >= 15:
+                            sector_df = df
+                            idx_type = it
+                            break
+                    except:
+                        continue
+                
+                # 如果还没找到足够数据，尝试不带 idx_type
+                if sector_df is None or len(sector_df) < 15:
+                    try:
+                        df = pro.dc_daily(ts_code=sector_code, start_date=start_date, end_date=end_date)
+                        if not df.empty and (sector_df is None or len(df) > len(sector_df)):
+                            sector_df = df
+                    except:
+                        pass
+
+                if sector_df is not None and not sector_df.empty:
+                    # 注入 idx_type 并保存
+                    if idx_type:
+                        sector_df['idx_type'] = idx_type
                     concept_cache_manager.save_concept_daily_data(sector_df)
             
             # 筛选指定板块的数据
@@ -177,7 +207,7 @@ def analyze_sector_alpha(
                 end_date=end_date
             )
             
-            if sector_df is None or sector_df.empty:
+            if sector_df is None or len(sector_df) < 15:
                 # 从API获取
                 pro = ts.pro_api()
                 sector_df = pro.index_daily(ts_code=sector_code, start_date=start_date, end_date=end_date)
@@ -191,7 +221,7 @@ def analyze_sector_alpha(
             end_date=end_date
         )
         
-        if benchmark_df is None or benchmark_df.empty:
+        if benchmark_df is None or len(benchmark_df) < 15:
             # 从API获取
             pro = ts.pro_api()
             benchmark_df = pro.index_daily(ts_code=benchmark_code, start_date=start_date, end_date=end_date)
@@ -224,7 +254,52 @@ def analyze_sector_alpha(
         # 取交集索引（共同的交易日），并按日期降序排列
         common_dates = sector_df.index.intersection(benchmark_df.index).sort_values(ascending=False)
         
-        if len(common_dates) < 6: # 至少需要6天数据（计算5日收益率需要第6天的数据作为基准）
+        # 兜底重试机制：如果交集不足，强制从API刷新所有数据
+        if len(common_dates) < 6:
+            
+            # 1. 刷新板块数据
+            pro = ts.pro_api()
+            # 重新获取 idx_type (如果之前没找到)
+            if is_eastmoney_concept and 'idx_type' not in locals():
+                 # 再次尝试轮询... 代码太长，简化为：如果失败了，就不再尝试复杂的轮询，直接用最可能的
+                 # 或者，既然之前已经轮询过了，这里 sector_df 应该是最好的结果了。
+                 # 问题可能出在 benchmark_df？
+                 pass
+            
+            # 简单起见，我们重新获取 benchmark_df（最可能的罪魁祸首，因为是公用的）
+            benchmark_df = pro.index_daily(ts_code=benchmark_code, start_date=start_date, end_date=end_date)
+            if not benchmark_df.empty:
+                index_daily_cache_manager.save_index_daily_data(benchmark_df)
+                benchmark_df['trade_date'] = pd.to_datetime(benchmark_df['trade_date'].astype(str))
+                benchmark_df = benchmark_df.set_index('trade_date')
+            
+            # 重新获取 sector_df (如果是东财)
+            if is_eastmoney_concept:
+                # 尝试重新获取，假设之前 idx_type 已经确定（如果 sector_df 不是 None）
+                # 如果 sector_df 是 None，之前流程已经处理过了。
+                # 如果 sector_df 不为空但日期不对？
+                # 我们这里主要处理 benchmark 日期不对的情况。
+                # 如果 sector_df 也不对，我们再次尝试获取（不带 idx_type 或者带已知的）
+                current_idx_type = locals().get('idx_type')
+                try:
+                    if current_idx_type:
+                        sector_df = pro.dc_daily(ts_code=sector_code, start_date=start_date, end_date=end_date, idx_type=current_idx_type)
+                    else:
+                        sector_df = pro.dc_daily(ts_code=sector_code, start_date=start_date, end_date=end_date)
+                    
+                    if not sector_df.empty:
+                        if current_idx_type:
+                            sector_df['idx_type'] = current_idx_type
+                        concept_cache_manager.save_concept_daily_data(sector_df)
+                        sector_df['trade_date'] = pd.to_datetime(sector_df['trade_date'].astype(str))
+                        sector_df = sector_df.set_index('trade_date')
+                except:
+                    pass
+            
+            # 再次计算交集
+            common_dates = sector_df.index.intersection(benchmark_df.index).sort_values(ascending=False)
+
+        if len(common_dates) < 6: # 至少需要6天数据
              return {"error": f"数据不足，共同交易日仅 {len(common_dates)} 天"}
              
         # 基于共同日期对齐数据

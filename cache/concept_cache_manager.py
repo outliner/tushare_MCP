@@ -84,6 +84,17 @@ class ConceptCacheManager:
             )
         ''')
         
+        # 创建板块代码名称映射表（用于存储板块代码和名称的对应关系）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS board_code_name_map (
+                ts_code TEXT NOT NULL,           -- 板块代码（如：BK1184.DC）
+                board_type TEXT NOT NULL,        -- 板块类型（概念板块、行业板块、地域板块）
+                name TEXT,                      -- 板块名称
+                updated_at REAL NOT NULL,        -- 最后更新时间戳
+                PRIMARY KEY (ts_code, board_type)
+            )
+        ''')
+        
         # 创建索引以提升查询性能
         # concept_index_data 索引
         cursor.execute('''
@@ -129,6 +140,20 @@ class ConceptCacheManager:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_concept_member_ts_code_date 
             ON concept_member_data(ts_code, trade_date)
+        ''')
+        
+        # board_code_name_map 索引
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_board_code_name_ts_code 
+            ON board_code_name_map(ts_code)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_board_code_name_board_type 
+            ON board_code_name_map(board_type)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_board_code_name_ts_code_type 
+            ON board_code_name_map(ts_code, board_type)
         ''')
         
         self.conn.commit()
@@ -630,6 +655,88 @@ class ConceptCacheManager:
         cursor.execute(f'SELECT COUNT(*) FROM concept_member_data WHERE {where_clause}', params)
         count = cursor.fetchone()[0]
         return count > 0
+    
+    def get_board_name_map(
+        self,
+        ts_codes: List[str],
+        board_type: str
+    ) -> Dict[str, str]:
+        """
+        从数据库查询板块代码到名称的映射
+        
+        参数:
+            ts_codes: 板块代码列表
+            board_type: 板块类型（概念板块、行业板块、地域板块）
+        
+        返回:
+            字典，key为板块代码，value为板块名称
+        """
+        if not ts_codes:
+            return {}
+        
+        cursor = self.conn.cursor()
+        placeholders = ','.join(['?'] * len(ts_codes))
+        params = ts_codes + [board_type]
+        
+        query = f'''
+            SELECT ts_code, name
+            FROM board_code_name_map
+            WHERE ts_code IN ({placeholders}) AND board_type = ?
+        '''
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        name_map = {}
+        for row in rows:
+            code = row[0]
+            name = row[1] if row[1] else code
+            name_map[code] = name
+        
+        return name_map
+    
+    def save_board_name_map(
+        self,
+        name_map: Dict[str, str],
+        board_type: str
+    ) -> int:
+        """
+        保存板块代码到名称的映射到数据库
+        
+        参数:
+            name_map: 字典，key为板块代码，value为板块名称
+            board_type: 板块类型（概念板块、行业板块、地域板块）
+        
+        返回:
+            保存的记录数量
+        """
+        if not name_map:
+            return 0
+        
+        cursor = self.conn.cursor()
+        current_time = time.time()
+        saved_count = 0
+        
+        for ts_code, name in name_map.items():
+            try:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO board_code_name_map (
+                        ts_code, board_type, name, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                ''', (
+                    str(ts_code),
+                    board_type,
+                    str(name) if name else None,
+                    current_time
+                ))
+                saved_count += 1
+            except Exception as e:
+                # 记录错误但继续处理其他记录
+                print(f"保存板块代码名称映射时出错: {str(e)}", file=__import__('sys').stderr)
+                continue
+        
+        self.conn.commit()
+        return saved_count
     
     def close(self):
         """关闭数据库连接"""

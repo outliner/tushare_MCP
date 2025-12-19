@@ -3,7 +3,7 @@ import tushare as ts
 import pandas as pd
 import numpy as np
 import json
-from typing import TYPE_CHECKING, Optional, List, Dict
+from typing import TYPE_CHECKING, Optional, List, Dict, Tuple
 from datetime import datetime, timedelta
 
 if TYPE_CHECKING:
@@ -215,16 +215,66 @@ def format_concept_member_data(df: pd.DataFrame, show_date: bool = True, show_co
     
     return "\n".join(result)
 
-def get_dc_board_codes(trade_date: str = None, board_type: str = '概念板块') -> List[str]:
+def _get_previous_trading_date(trade_date: str) -> Optional[str]:
     """
-    获取东财板块代码列表（支持概念、行业、地域）
+    获取前一个交易日
+    
+    参数:
+        trade_date: 当前交易日期（YYYYMMDD格式）
+    
+    返回:
+        前一个交易日期（YYYYMMDD格式），如果无法获取则返回None
+    """
+    try:
+        pro = ts.pro_api()
+        
+        # 使用交易日历接口获取前一个交易日
+        # 获取最近10个交易日，确保能找到前一个交易日
+        end_date_obj = datetime.strptime(trade_date, '%Y%m%d')
+        start_date_obj = end_date_obj - timedelta(days=10)
+        start_date = start_date_obj.strftime('%Y%m%d')
+        
+        # 获取交易日历
+        cal_df = pro.trade_cal(exchange='SSE', start_date=start_date, end_date=trade_date, is_open=1)
+        
+        if cal_df is not None and not cal_df.empty:
+            # 筛选出交易日，按日期排序（最新的在前）
+            cal_df = cal_df.sort_values('cal_date', ascending=False)
+            # 确保cal_date列是整数类型
+            if cal_df['cal_date'].dtype != 'int64':
+                cal_df['cal_date'] = pd.to_numeric(cal_df['cal_date'], errors='coerce')
+            end_date_int = int(trade_date) if isinstance(trade_date, str) else trade_date
+            cal_df = cal_df[cal_df['cal_date'] <= end_date_int]
+            
+            # 转换为字符串并去重
+            trading_dates = cal_df['cal_date'].astype(str).unique().tolist()
+            trading_dates = list(dict.fromkeys(trading_dates))  # 保持顺序的去重
+            
+            if len(trading_dates) >= 2:
+                # 返回前一个交易日（第二个）
+                return trading_dates[1]
+            elif len(trading_dates) == 1:
+                # 只有一个交易日，说明可能是第一个交易日，无法获取前一个
+                return None
+        return None
+    except Exception as e:
+        return None
+
+def get_dc_board_codes(trade_date: str = None, board_type: str = '概念板块') -> List[Dict[str, str]]:
+    """
+    获取东财板块代码列表（支持概念、行业、地域），包含板块名称
     
     参数:
         trade_date: 交易日期（YYYYMMDD格式，默认今天）
         board_type: 板块类型（概念板块、行业板块、地域板块）
     
     返回:
-        板块代码列表
+        板块代码和名称的字典列表，格式：[{'ts_code': 'BK1184.DC', 'name': '板块名称'}, ...]
+    
+    注意:
+        - 如果指定日期的数据为空（可能是非交易日），会自动回退到前一个交易日重试
+        - 最多回退一次，如果前一个交易日仍无数据，则返回空列表
+        - 优先从本地数据库查询名称，如果没有则通过 dc_index 接口获取并保存
     """
     token = get_tushare_token()
     if not token:
@@ -248,17 +298,103 @@ def get_dc_board_codes(trade_date: str = None, board_type: str = '概念板块')
             df = pro.dc_daily(trade_date=trade_date, idx_type=board_type)
             # 保存到缓存
             if not df.empty:
+                # 注入idx_type以便缓存正确分类
+                df['idx_type'] = board_type
                 concept_cache_manager.save_concept_daily_data(df)
+        
+        # 如果数据为空，尝试使用前一个交易日
+        if df.empty:
+            previous_date = _get_previous_trading_date(trade_date)
+            if previous_date and previous_date != trade_date:
+                # 使用前一个交易日重试
+                trade_date = previous_date
+                # 从缓存获取前一个交易日的数据
+                df = concept_cache_manager.get_concept_daily_data(trade_date=trade_date, idx_type=board_type)
+                
+                # 如果缓存中没有，从API获取
+                if df is None or df.empty:
+                    pro = ts.pro_api()
+                    df = pro.dc_daily(trade_date=trade_date, idx_type=board_type)
+                    # 保存到缓存
+                    if not df.empty:
+                        df['idx_type'] = board_type
+                        concept_cache_manager.save_concept_daily_data(df)
         
         if df.empty:
             return []
         
         # 提取唯一的板块代码
-        if 'ts_code' in df.columns:
-            codes = df['ts_code'].unique().tolist()
-            return sorted(codes)
+        if 'ts_code' not in df.columns:
+            return []
         
-        return []
+        codes = df['ts_code'].unique().tolist()
+        codes = sorted(codes)
+        
+        # 1. 先查询本地数据库获取代码对应的名称
+        name_map = concept_cache_manager.get_board_name_map(codes, board_type)
+        
+        # 找出没有名称的代码
+        missing_codes = [code for code in codes if code not in name_map]
+        
+        # 2. 如果有缺失的名称，通过 dc_index 接口获取并保存
+        if missing_codes:
+            try:
+                pro = ts.pro_api()
+                # 分批获取板块名称（每次最多50个代码，避免API限制）
+                batch_size = 50
+                new_name_map = {}
+                
+                for i in range(0, len(missing_codes), batch_size):
+                    batch_codes = missing_codes[i:i+batch_size]
+                    codes_str = ','.join(batch_codes)
+                    
+                    try:
+                        # 通过 dc_index 接口获取板块名称
+                        # 注意：dc_index 接口可能不支持 idx_type 参数，但可以通过 ts_code 参数查询
+                        index_df = pro.dc_index(ts_code=codes_str, trade_date=trade_date)
+                        
+                        if not index_df.empty and 'ts_code' in index_df.columns and 'name' in index_df.columns:
+                            for _, row in index_df.iterrows():
+                                code = str(row['ts_code'])
+                                name = str(row['name']) if pd.notna(row.get('name')) else code
+                                new_name_map[code] = name
+                    except Exception as e:
+                        # 如果 dc_index 接口失败，尝试其他方式
+                        # 对于行业板块和地域板块，可能需要使用其他接口
+                        print(f"通过 dc_index 获取板块名称失败（部分代码）: {str(e)}", file=__import__('sys').stderr)
+                        continue
+                
+                # 将新获取的名称添加到 name_map
+                name_map.update(new_name_map)
+                
+                # 保存新获取的名称到数据库
+                if new_name_map:
+                    concept_cache_manager.save_board_name_map(new_name_map, board_type)
+                
+                # 对于仍然没有名称的代码，使用代码本身作为名称
+                for code in missing_codes:
+                    if code not in name_map:
+                        name_map[code] = code
+                        # 也保存到数据库，避免重复查询
+                        concept_cache_manager.save_board_name_map({code: code}, board_type)
+                        
+            except Exception as e:
+                print(f"获取板块名称失败: {str(e)}", file=__import__('sys').stderr)
+                # 如果获取名称失败，使用代码本身作为名称
+                for code in missing_codes:
+                    if code not in name_map:
+                        name_map[code] = code
+        
+        # 构建返回结果
+        result = []
+        for code in codes:
+            result.append({
+                'ts_code': code,
+                'name': name_map.get(code, code)
+            })
+        
+        return result
+        
     except Exception as e:
         print(f"获取{board_type}代码失败: {str(e)}", file=__import__('sys').stderr)
         return []
@@ -267,7 +403,59 @@ def get_concept_codes(trade_date: str = None) -> List[str]:
     """
     获取所有东财概念板块代码列表（兼容旧接口）
     """
-    return get_dc_board_codes(trade_date, board_type='概念板块')
+    board_list = get_dc_board_codes(trade_date, board_type='概念板块')
+    return [item['ts_code'] for item in board_list]
+
+def _get_board_data_with_fallback(trade_date: str, board_type: str = '概念板块') -> Tuple[pd.DataFrame, bool]:
+    """
+    获取板块数据（带降级策略）
+    
+    参数:
+        trade_date: 交易日期（YYYYMMDD格式）
+        board_type: 板块类型（概念板块、行业板块、地域板块）
+    
+    返回:
+        (df, use_simple_score) 元组
+        - df: 板块数据DataFrame
+        - use_simple_score: 是否使用简易评分模式（True=简易模式，False=完整模式）
+    
+    说明:
+        - 概念板块优先尝试获取 dc_index 详细数据（完整模式）
+        - 如果失败或非概念板块，使用 dc_daily 基础数据（简易模式）
+    """
+    df = None
+    use_simple_score = False
+    
+    # 1. 如果是概念板块，优先尝试获取详细数据 (dc_index)
+    if board_type == '概念板块':
+        try:
+            # 尝试从缓存获取 dc_index 数据
+            df = concept_cache_manager.get_concept_index_data(trade_date=trade_date)
+            if df is None or df.empty:
+                pro = ts.pro_api()
+                df = pro.dc_index(trade_date=trade_date)
+                if not df.empty:
+                    concept_cache_manager.save_concept_index_data(df)
+        except Exception:
+            # 获取详细数据失败，回退到 dc_daily
+            pass
+    
+    # 2. 如果没有获取到数据（不是概念板块，或者dc_index获取失败），使用 dc_daily
+    if df is None or df.empty:
+        use_simple_score = True
+        # 尝试从缓存获取 dc_daily 数据
+        df = concept_cache_manager.get_concept_daily_data(trade_date=trade_date, idx_type=board_type)
+        if df is None or df.empty:
+            pro = ts.pro_api()
+            df = pro.dc_daily(trade_date=trade_date, idx_type=board_type)
+            if not df.empty:
+                concept_cache_manager.save_concept_daily_data(df)
+    
+    # 如果仍然为空，返回空DataFrame
+    if df is None:
+        df = pd.DataFrame()
+    
+    return df, use_simple_score
 
 def get_hot_dc_board_codes(trade_date: str = None, limit: int = 30, board_type: str = '概念板块') -> List[str]:
     """
@@ -293,33 +481,8 @@ def get_hot_dc_board_codes(trade_date: str = None, limit: int = 30, board_type: 
         trade_date = datetime.now().strftime('%Y%m%d')
     
     try:
-        df = None
-        use_simple_score = False
-        
-        # 1. 如果是概念板块，优先尝试获取详细数据 (dc_index)
-        if board_type == '概念板块':
-            try:
-                # 尝试从缓存获取 dc_index 数据
-                df = concept_cache_manager.get_concept_index_data(trade_date=trade_date)
-                if df is None or df.empty:
-                    pro = ts.pro_api()
-                    df = pro.dc_index(trade_date=trade_date)
-                    if not df.empty:
-                        concept_cache_manager.save_concept_index_data(df)
-            except Exception:
-                # 获取详细数据失败，回退到 dc_daily
-                pass
-        
-        # 2. 如果没有获取到数据（不是概念板块，或者dc_index获取失败），使用 dc_daily
-        if df is None or df.empty:
-            use_simple_score = True
-            # 尝试从缓存获取 dc_daily 数据
-            df = concept_cache_manager.get_concept_daily_data(trade_date=trade_date, idx_type=board_type)
-            if df is None or df.empty:
-                pro = ts.pro_api()
-                df = pro.dc_daily(trade_date=trade_date, idx_type=board_type)
-                if not df.empty:
-                    concept_cache_manager.save_concept_daily_data(df)
+        # 获取板块数据（带降级策略）
+        df, use_simple_score = _get_board_data_with_fallback(trade_date, board_type)
         
         if df.empty:
             return []
@@ -359,6 +522,10 @@ def get_hot_dc_board_codes(trade_date: str = None, limit: int = 30, board_type: 
             
         if use_simple_score:
             # 简易模式（行业/地域板块）：仅基于趋势(60%)和热度(40%)
+            # 填充缺失值
+            data['score_trend'] = data['score_trend'].fillna(0.5)
+            data['score_heat'] = data['score_heat'].fillna(0.5)
+            # 计算综合 CP_Score
             data['cp_score'] = 0.6 * data['score_trend'] + 0.4 * data['score_heat']
         else:
             # 完整模式（概念板块）：包含领涨股和广度得分
@@ -402,7 +569,8 @@ def get_hot_dc_board_codes(trade_date: str = None, limit: int = 30, board_type: 
     except Exception as e:
         import sys
         print(f"获取热门{board_type}代码失败: {str(e)}", file=sys.stderr)
-        return get_dc_board_codes(trade_date, board_type)
+        board_list = get_dc_board_codes(trade_date, board_type)
+        return [item['ts_code'] for item in board_list]
 
 def get_hot_concept_codes(trade_date: str = None, limit: int = 30) -> List[str]:
     """
@@ -1178,6 +1346,9 @@ def register_concept_tools(mcp: "FastMCP"):
                 df = pro.dc_daily(**params)
                 # 保存到缓存
                 if not df.empty:
+                    # 如果指定了idx_type，注入到DataFrame中以便正确缓存
+                    if idx_type:
+                        df['idx_type'] = idx_type
                     concept_cache_manager.save_concept_daily_data(df)
             
             if df.empty:
@@ -1384,10 +1555,15 @@ def register_concept_tools(mcp: "FastMCP"):
         try:
             trade_date_str = end_date if end_date else datetime.now().strftime('%Y%m%d')
             
+            # 先获取所有板块的代码和名称映射（利用 get_dc_board_codes 的缓存机制）
+            all_board_list = get_dc_board_codes(trade_date_str, board_type=board_type)
+            # 构建名称映射
+            board_name_map = {item['ts_code']: item['name'] for item in all_board_list}
+            
             # 对于地域板块和行业板块，由于数量较少，直接获取所有板块代码，不进行热门筛选
             # 这样可以确保分析覆盖全量数据
             if board_type in ['地域板块', '行业板块']:
-                concept_codes = get_dc_board_codes(trade_date_str, board_type=board_type)
+                concept_codes = [item['ts_code'] for item in all_board_list]
                 is_hot_selection = False
             else:
                 # 获取热门板块代码列表（根据成交额和换手率筛选）
@@ -1405,95 +1581,44 @@ def register_concept_tools(mcp: "FastMCP"):
             
             # 显示所有排名（如果top_n大于等于总数，显示全部）
             if top_n >= len(df):
-                df_display = df
+                df_display = df.copy()
             else:
-                df_display = df.head(top_n)
+                df_display = df.head(top_n).copy()
             
             # 获取板块名称和今日行情数据
             try:
                 pro = ts.pro_api()
-                concept_codes_str = ','.join(df_display['sector_code'].tolist())
                 
-                # 获取详细信息
-                # 如果是概念板块，尝试用 dc_index（有名称）
-                # 如果是其他，尝试用 dc_daily
-                concept_df = pd.DataFrame()
-                
-                if board_type == '概念板块':
-                    try:
-                        concept_df = pro.dc_index(ts_code=concept_codes_str, trade_date=trade_date_str)
-                    except:
-                        pass
-                
-                # 如果不是概念板块，或者dc_index获取失败，或者数据为空
-                if concept_df.empty:
-                    # 尝试用 dc_daily
-                    # dc_daily 返回的数据中没有 name 字段，需要单独处理
-                    # 对于行业和地域板块，dc_daily 返回的 ts_code 就是板块代码
-                    # 但是 dc_daily 接口不返回板块名称，这是一个问题
-                    # 我们需要找到另一种方式获取板块名称，或者接受这里没有名称
-                    
-                    # 尝试从 concept_cache_manager 中获取名称映射
-                    # 或者，如果之前调用 get_dc_board_codes 时有缓存数据
-                    
-                    concept_df = pro.dc_daily(trade_date=trade_date_str, idx_type=board_type)
-                    # 筛选出我们需要的代码
-                    if not concept_df.empty and 'ts_code' in concept_df.columns:
-                        concept_df = concept_df[concept_df['ts_code'].isin(df_display['sector_code'].tolist())]
-                
-                # 创建板块代码到名称的映射
-                name_map = {}
+                # 名称已经从 board_name_map 获取（通过 get_dc_board_codes 缓存机制）
+                # 只需要获取今日行情数据（涨跌幅、成交额、换手率）
                 pct_map = {}
                 amount_map = {}
                 turnover_map = {}
                 
-                # 特殊处理：地域板块和行业板块的名称映射
-                # 由于 dc_daily 不返回名称，我们需要构建一个映射
-                # 这里暂时无法从API获取所有板块名称映射，
-                # 但如果之前通过 get_eastmoney_concept_board 获取过数据，可能在缓存里
-                
-                # 尝试通过 get_concept_moneyflow_dc 接口获取名称（如果支持的话）
-                # 或者通过其他方式
-                
-                # 临时解决方案：如果 concept_df 中没有 name 列，尝试查找是否有 name 字段
-                # 如果都没有，只能显示代码
-                
-                # 实际上，东财板块的名称通常可以通过代码查询，但在 MCP 工具中可能受限
-                # 我们尝试从资金流向接口获取名称，因为那里有 name 字段
-                if board_type in ['地域板块', '行业板块'] and (concept_df.empty or 'name' not in concept_df.columns):
-                    try:
-                        mf_df = pro.moneyflow_ind_dc(trade_date=trade_date_str, content_type=board_type)
-                        if not mf_df.empty:
-                            for _, row in mf_df.iterrows():
-                                if row['ts_code'] in df_display['sector_code'].tolist():
-                                    name_map[row['ts_code']] = row['name']
-                    except:
-                        pass
-
+                # 获取今日行情数据
+                concept_df = pro.dc_daily(trade_date=trade_date_str, idx_type=board_type)
                 if not concept_df.empty and 'ts_code' in concept_df.columns:
+                    # 筛选出我们需要的代码
+                    concept_df = concept_df[concept_df['ts_code'].isin(df_display['sector_code'].tolist())]
+                    
                     for _, row in concept_df.iterrows():
                         code = row['ts_code']
-                        # dc_daily 可能没有 name 字段
-                        # 如果 name_map 中已经有（从资金流向获取的），优先使用
-                        if code not in name_map:
-                            name = row.get('name', code) if pd.notna(row.get('name')) else code
-                            name_map[code] = name
-                        
                         pct_map[code] = row.get('pct_change', 0) if pd.notna(row.get('pct_change')) else 0
                         amount_map[code] = row.get('amount', 0) if pd.notna(row.get('amount')) else 0
                         turnover_map[code] = row.get('turnover_rate', row.get('turnover', 0)) if pd.notna(row.get('turnover_rate', row.get('turnover'))) else 0
                 
                 # 添加板块名称等信息到DataFrame
-                df_display['name'] = df_display['sector_code'].map(name_map).fillna(df_display['sector_code'])
+                # 名称直接使用已有的 board_name_map
+                df_display['name'] = df_display['sector_code'].map(board_name_map).fillna(df_display['sector_code'])
                 df_display['pct_change'] = df_display['sector_code'].map(pct_map).fillna(0)
                 df_display['amount'] = df_display['sector_code'].map(amount_map).fillna(0)
                 df_display['turnover'] = df_display['sector_code'].map(turnover_map).fillna(0)
                 
             except Exception as e:
-                # 如果获取名称失败，使用代码作为名称
+                # 如果获取行情失败，使用已有的名称映射，行情数据置0
                 import sys
-                print(f"获取板块名称失败: {str(e)}", file=sys.stderr)
-                df_display['name'] = df_display['sector_code']
+                print(f"获取板块行情数据失败: {str(e)}", file=sys.stderr)
+                df_display['name'] = df_display['sector_code'].map(board_name_map).fillna(df_display['sector_code'])
                 df_display['pct_change'] = 0
                 df_display['amount'] = 0
                 df_display['turnover'] = 0
@@ -1553,8 +1678,11 @@ def register_concept_tools(mcp: "FastMCP"):
             if end_date == "":
                 end_date = None
             
-            # 获取板块代码列表
-            concept_codes = get_dc_board_codes(end_date or datetime.now().strftime('%Y%m%d'), board_type=board_type)
+            # 获取板块代码列表和名称映射
+            board_list = get_dc_board_codes(end_date or datetime.now().strftime('%Y%m%d'), board_type=board_type)
+            concept_codes = [item['ts_code'] for item in board_list]
+            # 构建名称映射
+            board_name_map = {item['ts_code']: item['name'] for item in board_list}
             
             if not concept_codes:
                 return f"无法获取{board_type}列表，请检查网络连接和token配置。\n提示：可能是数据获取失败，请检查Tushare token是否有效。"
@@ -1605,7 +1733,7 @@ def register_concept_tools(mcp: "FastMCP"):
             output.append("-" * 120)
             change_1d_label = f"较{yesterday_date_display}变化" if yesterday_date else "较昨日上升"
             change_2d_label = f"较{day_before_yesterday_date_display}变化" if day_before_yesterday_date else "较前天上升"
-            output.append(f"{'排名':<6} {'板块代码':<15} {'Alpha值':<12} {change_1d_label:<20} {change_2d_label:<20}")
+            output.append(f"{'排名':<6} {'板块名称':<20} {'板块代码':<15} {'Alpha值':<12} {change_1d_label:<15} {change_2d_label:<15}")
             output.append("-" * 120)
             
             # 按当前排名排序
@@ -1614,6 +1742,7 @@ def register_concept_tools(mcp: "FastMCP"):
             for _, row in df_sorted.iterrows():
                 rank = f"{int(row['current_rank'])}"
                 concept_code = row['sector_code']
+                concept_name = board_name_map.get(concept_code, concept_code)
                 alpha = f"{row['current_alpha']*100:.2f}%" if pd.notna(row['current_alpha']) else "-"
                 
                 # 较昨日上升位数
@@ -1640,7 +1769,7 @@ def register_concept_tools(mcp: "FastMCP"):
                 else:
                     change_2d = "-"
                 
-                output.append(f"{rank:<6} {concept_code:<15} {alpha:<12} {change_1d:<12} {change_2d:<12}")
+                output.append(f"{rank:<6} {concept_name:<20} {concept_code:<15} {alpha:<12} {change_1d:<12} {change_2d:<12}")
             
             output.append("")
             
@@ -1650,15 +1779,16 @@ def register_concept_tools(mcp: "FastMCP"):
                 df_1d = df_1d.sort_values('rank_change_1d', ascending=False)
                 output.append(f"🚀 较{yesterday_date_display}排名变化排行（前10名）：")
                 output.append("-" * 120)
-                output.append(f"{'排名':<6} {'板块代码':<15} {f'{current_date_display}排名':<15} {'排名变化':<12} {'Alpha值':<12}")
+                output.append(f"{'序号':<6} {'板块名称':<20} {'板块代码':<15} {f'{current_date_display}排名':<12} {'排名变化':<12} {'Alpha值':<12}")
                 output.append("-" * 120)
                 
                 for idx, (_, row) in enumerate(df_1d.head(10).iterrows(), 1):
                     rank = f"{int(row['current_rank'])}"
                     concept_code = row['sector_code']
+                    concept_name = board_name_map.get(concept_code, concept_code)
                     change_1d = f"{int(row['rank_change_1d']):+d}"
                     alpha = f"{row['current_alpha']*100:.2f}%" if pd.notna(row['current_alpha']) else "-"
-                    output.append(f"{idx:<6} {concept_code:<15} {rank:<15} {change_1d:<12} {alpha:<12}")
+                    output.append(f"{idx:<6} {concept_name:<20} {concept_code:<15} {rank:<12} {change_1d:<12} {alpha:<12}")
                 
                 output.append("")
             
@@ -1668,15 +1798,16 @@ def register_concept_tools(mcp: "FastMCP"):
                 df_2d = df_2d.sort_values('rank_change_2d', ascending=False)
                 output.append(f"🚀 较{day_before_yesterday_date_display}排名变化排行（前10名）：")
                 output.append("-" * 120)
-                output.append(f"{'排名':<6} {'板块代码':<15} {f'{current_date_display}排名':<15} {'排名变化':<12} {'Alpha值':<12}")
+                output.append(f"{'序号':<6} {'板块名称':<20} {'板块代码':<15} {f'{current_date_display}排名':<12} {'排名变化':<12} {'Alpha值':<12}")
                 output.append("-" * 120)
                 
                 for idx, (_, row) in enumerate(df_2d.head(10).iterrows(), 1):
                     rank = f"{int(row['current_rank'])}"
                     concept_code = row['sector_code']
+                    concept_name = board_name_map.get(concept_code, concept_code)
                     change_2d = f"{int(row['rank_change_2d']):+d}"
                     alpha = f"{row['current_alpha']*100:.2f}%" if pd.notna(row['current_alpha']) else "-"
-                    output.append(f"{idx:<6} {concept_code:<15} {rank:<15} {change_2d:<12} {alpha:<12}")
+                    output.append(f"{idx:<6} {concept_name:<20} {concept_code:<15} {rank:<12} {change_2d:<12} {alpha:<12}")
                 
                 output.append("")
             

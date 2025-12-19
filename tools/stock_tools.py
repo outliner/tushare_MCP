@@ -2617,69 +2617,67 @@ def register_stock_tools(mcp: "FastMCP"):
         try:
             pro = ts.pro_api()
             
-            # 确定查询日期
-            if check_date:
-                # 使用指定的日期
-                query_date = check_date
-                use_date_range = False
-            elif start_date and end_date:
-                # 使用日期范围
-                use_date_range = True
-            else:
-                # 默认使用当天
-                query_date = datetime.now().strftime('%Y%m%d')
-                use_date_range = False
-            
             # 解析股票代码列表
             ts_code_filter = None
             if ts_code_list:
                 ts_code_filter = [code.strip() for code in ts_code_list.split(',') if code.strip()]
             
+            # 构建API查询参数
+            api_params = {}
+            
+            # 日期参数处理
+            if check_date:
+                # 单日查询使用 ann_date
+                api_params['ann_date'] = check_date
+                date_info = check_date
+            elif start_date and end_date:
+                # 日期范围查询使用 start_date 和 end_date（API原生支持）
+                api_params['start_date'] = start_date
+                api_params['end_date'] = end_date
+                date_info = f"{start_date} 至 {end_date}"
+            else:
+                # 默认使用当天
+                api_params['ann_date'] = datetime.now().strftime('%Y%m%d')
+                date_info = api_params['ann_date']
+            
             # 获取公告数据
             all_results = []
+            last_error = None  # 记录最后一个错误
             
-            if use_date_range:
-                # 日期范围查询
-                from datetime import datetime, timedelta
-                start = datetime.strptime(start_date, '%Y%m%d')
-                end = datetime.strptime(end_date, '%Y%m%d')
-                current = start
-                
-                while current <= end:
-                    date_str = current.strftime('%Y%m%d')
-                    try:
-                        df = pro.anns_d(ann_date=date_str)
-                        if not df.empty:
-                            all_results.append(df)
-                    except Exception as e:
-                        # 某个日期失败，继续下一个日期
-                        pass
-                    current += timedelta(days=1)
-                
-                if all_results:
-                    df = pd.concat(all_results, ignore_index=True)
-                else:
-                    df = pd.DataFrame()
-            else:
-                # 单日查询
-                try:
-                    df = pro.anns_d(ann_date=query_date)
-                except Exception as api_error:
-                    error_msg = str(api_error)
-                    if '接口名' in error_msg or 'api_name' in error_msg.lower() or '请指定正确的接口名' in error_msg:
-                        return f"API接口调用失败：{error_msg}\n\n已使用接口：anns_d\n\n可能的原因：\n1. Tushare token是否有效\n2. 账户是否有anns_d接口权限（本接口为单独权限）\n3. 网络连接是否正常\n\n建议：\n- 请查看Tushare文档确认anns_d接口权限\n- 检查Tushare账户是否有该接口访问权限"
+            try:
+                if ts_code_filter:
+                    # 有股票代码过滤时，逐个股票查询（API原生支持ts_code参数）
+                    for ts_code in ts_code_filter:
+                        try:
+                            df = pro.anns_d(ts_code=ts_code, **api_params)
+                            if df is not None and not df.empty:
+                                all_results.append(df)
+                        except Exception as e:
+                            # 记录错误信息，继续下一个
+                            last_error = str(e)
+                            continue
+                    
+                    if all_results:
+                        df = pd.concat(all_results, ignore_index=True)
                     else:
-                        return f"API调用失败：{error_msg}\n请检查：\n1. Tushare token是否有效\n2. 账户是否有anns_d接口权限（本接口为单独权限）\n3. 网络连接是否正常"
+                        df = pd.DataFrame()
+                        # 如果所有查询都失败且有权限错误，返回错误信息
+                        if last_error and ('没有接口访问权限' in last_error or '权限' in last_error):
+                            return f"API调用失败：{last_error}\n\n请检查：\n1. Tushare token是否有效\n2. 账户是否有anns_d接口权限（本接口为单独权限）\n\n建议：\n- 请查看Tushare文档确认anns_d接口权限\n- 访问 https://tushare.pro/document/1?doc_id=108 查看权限说明"
+                else:
+                    # 全市场查询
+                    df = pro.anns_d(**api_params)
+                    
+            except Exception as api_error:
+                error_msg = str(api_error)
+                if '没有接口访问权限' in error_msg or '权限' in error_msg:
+                    return f"API调用失败：{error_msg}\n\n请检查：\n1. Tushare token是否有效\n2. 账户是否有anns_d接口权限（本接口为单独权限）\n\n建议：\n- 请查看Tushare文档确认anns_d接口权限\n- 访问 https://tushare.pro/document/1?doc_id=108 查看权限说明"
+                else:
+                    return f"API调用失败：{error_msg}\n请检查：\n1. Tushare token是否有效\n2. 账户是否有anns_d接口权限（本接口为单独权限）\n3. 网络连接是否正常"
             
-            if df.empty:
-                date_info = query_date if not use_date_range else f"{start_date} 至 {end_date}"
-                return f"未找到 {date_info} 的公告数据"
-            
-            # 如果指定了股票池，先过滤
-            if ts_code_filter:
-                df = df[df['ts_code'].isin(ts_code_filter)]
-                if df.empty:
-                    return f"未找到指定股票代码在指定日期的公告数据"
+            if df is None or df.empty:
+                stock_info = f"（股票：{ts_code_list}）" if ts_code_list else ""
+                return f"未找到 {date_info} {stock_info}的公告数据"
             
             # --- 核心逻辑：关键词字典 ---
             
@@ -2725,8 +2723,8 @@ def register_stock_tools(mcp: "FastMCP"):
                     })
             
             if not results:
-                date_info = query_date if not use_date_range else f"{start_date} 至 {end_date}"
-                return f"未发现 {date_info} 的关键信号公告"
+                stock_info = f"（股票：{ts_code_list}）" if ts_code_list else ""
+                return f"未发现 {date_info} {stock_info}的关键信号公告\n\n说明：共扫描 {len(df)} 条公告，未匹配到利好/利空/重大事项关键词"
             
             # 转换为DataFrame
             res_df = pd.DataFrame(results)
