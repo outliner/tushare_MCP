@@ -142,6 +142,7 @@ class ConceptCacheManager:
             ON concept_member_data(ts_code, trade_date)
         ''')
         
+<<<<<<< HEAD
         # board_code_name_map 索引
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_board_code_name_ts_code 
@@ -154,6 +155,23 @@ class ConceptCacheManager:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_board_code_name_ts_code_type 
             ON board_code_name_map(ts_code, board_type)
+=======
+        # 为 concept_index_data 表添加 idx_type 字段（如果不存在）
+        try:
+            cursor.execute('ALTER TABLE concept_index_data ADD COLUMN idx_type TEXT')
+        except sqlite3.OperationalError:
+            # 字段已存在，忽略错误
+            pass
+        
+        # 为 idx_type 创建索引
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_concept_index_idx_type 
+            ON concept_index_data(idx_type)
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_concept_index_trade_date_idx_type 
+            ON concept_index_data(trade_date, idx_type)
+>>>>>>> 5692a6a (feat:添加全局过滤方法)
         ''')
         
         self.conn.commit()
@@ -187,8 +205,8 @@ class ConceptCacheManager:
                 cursor.execute('''
                     INSERT OR REPLACE INTO concept_index_data (
                         trade_date, ts_code, name, pct_change, leading, leading_pct,
-                        total_mv, turnover_rate, up_num, down_num, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        total_mv, turnover_rate, up_num, down_num, idx_type, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     str(row.get('trade_date', '')),
                     str(row.get('ts_code', '')),
@@ -200,6 +218,7 @@ class ConceptCacheManager:
                     row.get('turnover_rate') if pd.notna(row.get('turnover_rate')) else None,
                     int(row.get('up_num')) if pd.notna(row.get('up_num')) else None,
                     int(row.get('down_num')) if pd.notna(row.get('down_num')) else None,
+                    row.get('idx_type') if pd.notna(row.get('idx_type')) else None,
                     current_time
                 ))
                 saved_count += 1
@@ -218,6 +237,7 @@ class ConceptCacheManager:
         trade_date: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        idx_type: Optional[str] = None,
         limit: Optional[int] = None,
         order_by: str = 'DESC'
     ) -> Optional[pd.DataFrame]:
@@ -230,6 +250,7 @@ class ConceptCacheManager:
             trade_date: 特定交易日期（YYYYMMDD格式）
             start_date: 开始日期（YYYYMMDD格式）
             end_date: 结束日期（YYYYMMDD格式）
+            idx_type: 板块类型（概念板块、行业板块、地域板块）
             limit: 限制返回的记录数
             order_by: 排序方式，'DESC'（降序，最新的在前）或 'ASC'（升序）
         
@@ -257,6 +278,10 @@ class ConceptCacheManager:
             conditions.append('name LIKE ?')
             params.append(f'%{name}%')
         
+        if idx_type:
+            conditions.append('idx_type = ?')
+            params.append(idx_type)
+        
         if trade_date:
             conditions.append('trade_date = ?')
             params.append(trade_date)
@@ -275,7 +300,7 @@ class ConceptCacheManager:
         query = f'''
             SELECT 
                 trade_date, ts_code, name, pct_change, leading, leading_pct,
-                total_mv, turnover_rate, up_num, down_num, created_at
+                total_mv, turnover_rate, up_num, down_num, idx_type, created_at
             FROM concept_index_data
             WHERE {where_clause}
             {order_clause}
@@ -291,7 +316,7 @@ class ConceptCacheManager:
         # 转换为DataFrame
         columns = [
             'trade_date', 'ts_code', 'name', 'pct_change', 'leading', 'leading_pct',
-            'total_mv', 'turnover_rate', 'up_num', 'down_num', 'created_at'
+            'total_mv', 'turnover_rate', 'up_num', 'down_num', 'idx_type', 'created_at'
         ]
         df = pd.DataFrame(rows, columns=columns)
         
