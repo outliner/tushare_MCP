@@ -141,21 +141,6 @@ class ConceptCacheManager:
             CREATE INDEX IF NOT EXISTS idx_concept_member_ts_code_date 
             ON concept_member_data(ts_code, trade_date)
         ''')
-        
-<<<<<<< HEAD
-        # board_code_name_map 索引
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_board_code_name_ts_code 
-            ON board_code_name_map(ts_code)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_board_code_name_board_type 
-            ON board_code_name_map(board_type)
-        ''')
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_board_code_name_ts_code_type 
-            ON board_code_name_map(ts_code, board_type)
-=======
         # 为 concept_index_data 表添加 idx_type 字段（如果不存在）
         try:
             cursor.execute('ALTER TABLE concept_index_data ADD COLUMN idx_type TEXT')
@@ -171,7 +156,6 @@ class ConceptCacheManager:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_concept_index_trade_date_idx_type 
             ON concept_index_data(trade_date, idx_type)
->>>>>>> 5692a6a (feat:添加全局过滤方法)
         ''')
         
         self.conn.commit()
