@@ -1871,14 +1871,14 @@ def register_stock_tools(mcp: "FastMCP"):
             error_detail = traceback.format_exc()
             return f"查询失败：{str(e)}\n详细信息：{error_detail}"
     
-    @mcp.tool()
-    def get_stock_min(
+    # ==================== A股实时分钟行情 独立函数 ====================
+    def _fetch_stock_min_data(
         ts_code: str = "",
         freq: str = "1MIN",
         date_str: str = ""
     ) -> str:
         """
-        获取A股实时分钟行情数据
+        获取A股实时分钟行情数据（独立实现函数）
         
         参数:
             ts_code: 股票代码（必填，如：600000.SH，支持多个股票，逗号分隔，如：600000.SH,000001.SZ）
@@ -1997,6 +1997,40 @@ def register_stock_tools(mcp: "FastMCP"):
             import traceback
             error_detail = traceback.format_exc()
             return f"查询失败：{str(e)}\n详细信息：{error_detail}"
+    
+    # ==================== A股实时分钟行情 MCP Tool ====================
+    @mcp.tool()
+    def get_stock_min(
+        ts_code: str = "",
+        freq: str = "1MIN",
+        date_str: str = ""
+    ) -> str:
+        """
+        获取A股实时分钟行情数据
+        
+        参数:
+            ts_code: 股票代码（必填，如：600000.SH，支持多个股票，逗号分隔，如：600000.SH,000001.SZ）
+            freq: 分钟频度（必填，默认1MIN）
+                - 1MIN: 1分钟
+                - 5MIN: 5分钟
+                - 15MIN: 15分钟
+                - 30MIN: 30分钟
+                - 60MIN: 60分钟
+            date_str: 回放日期（可选，格式：YYYY-MM-DD，默认为交易当日，支持回溯一天）
+                如果提供此参数，将使用rt_min_daily接口获取当日开盘以来的所有历史分钟数据
+        
+        返回:
+            包含A股实时分钟行情数据的格式化字符串
+        
+        说明:
+            - 数据来源：Tushare rt_min接口（实时）或rt_min_daily接口（历史回放）
+            - 支持1min/5min/15min/30min/60min行情
+            - 显示开盘、最高、最低、收盘、成交量、成交额等数据
+            - 权限要求：正式权限请参阅权限说明
+            - 限量：单次最大1000行数据，支持多个股票同时提取
+            - 注意：rt_min_daily接口仅支持单个股票提取，不能同时提取多个
+        """
+        return _fetch_stock_min_data(ts_code=ts_code, freq=freq, date_str=date_str)
     
     @mcp.tool()
     def get_stock_rt_k(

@@ -35,7 +35,7 @@ ENV/
 # Tushare MCP specific
 .tushare_mcp/
 .cache/
-
+.test/
 # OS
 .DS_Store
 Thumbs.db 
