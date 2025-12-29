@@ -414,3 +414,6 @@ Alpha策略分析：6个
 概念板块工具：8个
 成交量异动分析：1个
 缓存管理工具：1个
+
+统计分时线的脚本
+python g:\AICode\tocker-mcp\tushare_MCP\scripts\realtime_collector.py

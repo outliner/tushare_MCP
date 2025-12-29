@@ -15,6 +15,8 @@ from cache.index_daily_cache_manager import index_daily_cache_manager
 from cache.stk_surv_cache_manager import stk_surv_cache_manager
 from cache.cyq_perf_cache_manager import cyq_perf_cache_manager
 from cache.daily_basic_cache_manager import daily_basic_cache_manager
+from cache.mapping_cache_manager import mapping_cache_manager
+from cache.stock_intraday_cache_manager import stock_intraday_cache_manager
 from utils.common import format_date
 
 def register_stock_tools(mcp: "FastMCP"):
@@ -102,6 +104,353 @@ def register_stock_tools(mcp: "FastMCP"):
             
         except Exception as e:
             return f"查询失败：{str(e)}"
+
+    @mcp.tool()
+    def collect_stock_sector_mapping() -> str:
+        """
+        全量拉取并建立股票与申万二级行业、东财行业、东财概念的映射关系
+        
+        说明：
+        - 这是一个重型工具，会多次请求Tushare和东财接口
+        - 结果会持久化到本地数据库，支持后续筛选和分析
+        - 执行时间可能较长（几分钟到十几分钟不等）
+        """
+        token = get_tushare_token()
+        if not token:
+            return "请先配置Tushare token"
+            
+        try:
+            pro = ts.pro_api()
+            print("🚀 开始全量映射采集...", file=__import__('sys').stderr)
+            
+            # 1. 获取所有A股股票基本信息
+            print("📥 正在读取股票列表...", file=__import__('sys').stderr)
+            df_basic = pro.stock_basic(list_status='L', fields='ts_code,name,industry')
+            if df_basic.empty:
+                return "未能获取到股票基本信息"
+            
+            # 初始化汇总字典
+            # stock_map = {ts_code: {name, industry, sw_l2_code, sw_l2_name, em_ind_code, em_ind_name, em_concept_codes: [], em_concept_names: []}}
+            stock_map = {}
+            for _, row in df_basic.iterrows():
+                code = row['ts_code']
+                stock_map[code] = {
+                    'ts_code': code,
+                    'name': row['name'],
+                    'sw_l2_code': '',
+                    'sw_l2_name': '',
+                    'em_industry_code': '',
+                    'em_industry_name': '',
+                    'em_concept_codes': [],
+                    'em_concept_names': []
+                }
+
+            # 2. 采集申万二级行业映射
+            print("📥 正在采集申万二级行业映射...", file=__import__('sys').stderr)
+            # 获取所有申万二级行业分类 (SW2021)
+            sw_l2_classify = pro.index_classify(level='L2', src='SW2021')
+            if not sw_l2_classify.empty:
+                for _, ind in sw_l2_classify.iterrows():
+                    l2_code = ind['index_code']
+                    l2_name = ind['industry_name']
+                    # 获取该行业成分股
+                    try:
+                        members = pro.index_member_all(l2_code=l2_code)
+                        if members is not None and not members.empty:
+                            for _, member in members.iterrows():
+                                m_code = member['ts_code']
+                                if m_code in stock_map:
+                                    stock_map[m_code]['sw_l2_code'] = l2_code
+                                    stock_map[m_code]['sw_l2_name'] = l2_name
+                    except:
+                        continue
+
+            # 3. 采集东财行业和概念映射
+            # 导入现有的采集工具以保持逻辑一致
+            from tools.concept_tools import get_dc_board_codes
+            
+            # 3.1 东财行业
+            print("📥 正在采集东财行业板块映射...", file=__import__('sys').stderr)
+            ind_boards_str = get_dc_board_codes(board_type='行业板块')
+            # get_dc_board_codes 返回的是格式化字符串，我们需要解析它或直接调用接口
+            # 简化起见，我们直接调用接口获取代码列表
+            try:
+                # pro.dc_index 只支持概念，我们需要用 dc_daily 或其他方式获取行业列表
+                # 实际上从 pro.dc_index 获取所有代码更稳妥
+                all_boards = pro.dc_index() # 获取东财所有指数信息
+                if not all_boards.empty:
+                    # 行业板块
+                    industry_boards = all_boards[all_boards['type'] == '行业']
+                    for _, board in industry_boards.iterrows():
+                        b_code = board['ts_code']
+                        b_name = board['name']
+                        try:
+                            m = pro.dc_index_member(ts_code=b_code)
+                            if m is not None and not m.empty:
+                                for _, member in m.iterrows():
+                                    m_code = member['con_code']
+                                    if m_code in stock_map:
+                                        stock_map[m_code]['em_industry_code'] = b_code
+                                        stock_map[m_code]['em_industry_name'] = b_name
+                        except:
+                            continue
+                    
+                    # 3.2 东财概念
+                    print("📥 正在采集东财概念板块映射...", file=__import__('sys').stderr)
+                    concept_boards = all_boards[all_boards['type'] == '概念']
+                    for _, board in concept_boards.iterrows():
+                        b_code = board['ts_code']
+                        b_name = board['name']
+                        try:
+                            m = pro.dc_index_member(ts_code=b_code)
+                            if m is not None and not m.empty:
+                                for _, member in m.iterrows():
+                                    m_code = member['con_code']
+                                    if m_code in stock_map:
+                                        if b_code not in stock_map[m_code]['em_concept_codes']:
+                                            stock_map[m_code]['em_concept_codes'].append(b_code)
+                                            stock_map[m_code]['em_concept_names'].append(b_name)
+                        except:
+                            continue
+            except Exception as e:
+                print(f"采集东财板块数据出错: {str(e)}", file=__import__('sys').stderr)
+
+            # 4. 汇总与入库
+            print("💾 正在同步同步到本地数据库...", file=__import__('sys').stderr)
+            final_list = list(stock_map.values())
+            df_final = pd.DataFrame(final_list)
+            
+            saved_count = mapping_cache_manager.save_mapping(df_final)
+            
+            return f"✅ 全量映射采集完成！\n- 扫描股票总数: {len(df_basic)}\n- 成功入库/更新记录: {saved_count}\n- 包含申万L2、东财行业及概念板块映射数据"
+            
+        except Exception as e:
+            import traceback
+            return f"❌ 映射采集失败: {str(e)}\n{traceback.format_exc()}"
+    
+    @mcp.tool()
+    def get_stock_sector_mapping(ts_code: str) -> str:
+        """
+        获取单只股票的申万二级行业、东财行业及概念映射
+        
+        参数:
+            ts_code: 股票代码（如：600519.SH）
+        """
+        try:
+            mapping = mapping_cache_manager.get_mapping_by_code(ts_code)
+            if not mapping:
+                return f"未找到股票 {ts_code} 的映射数据。请先运行 collect_stock_sector_mapping 进行同步。"
+            
+            result = [
+                f"股票: {mapping['name']} ({mapping['ts_code']})",
+                f"申万二级行业: {mapping['sw_l2_name']} ({mapping['sw_l2_code']})",
+                f"东财行业: {mapping['em_industry_name']} ({mapping['em_industry_code']})",
+                f"东财概念: {', '.join(mapping['em_concept_names'])}",
+                f"更新时间: {datetime.fromtimestamp(mapping['updated_at']).strftime('%Y-%m-%d %H:%M:%S')}"
+            ]
+            return "\n".join(result)
+        except Exception as e:
+            return f"查询失败: {str(e)}"
+
+    @mcp.tool()
+    def get_stocks_by_sector(sector_code: str, sector_type: str = "em_concept") -> str:
+        """
+        根据板块代码获取所属的所有股票
+        
+        参数:
+            sector_code: 板块代码（如：BK1184.DC, 801053.SI）
+            sector_type: 板块类型 ('sw_l2', 'em_industry', 'em_concept')
+        """
+        try:
+            df = mapping_cache_manager.search_by_sector(sector_type, sector_code)
+            if df.empty:
+                return f"未找到该板块下的股票。请确保代码正确且已运行 collect_stock_sector_mapping 同步。"
+            
+            # 格式化输出
+            result = [f"### 板块 {sector_code} 下的股票列表 ({len(df)} 只):\n"]
+            result.append("| 股票代码 | 股票名称 | 申万二级 | 东财行业 |")
+            result.append("| --- | --- | --- | --- |")
+            
+            for _, row in df.iterrows():
+                result.append(f"| {row['ts_code']} | {row['name']} | {row['sw_l2_name']} | {row['em_industry_name']} |")
+                
+            return "\n".join(result)
+        except Exception as e:
+            return f"查询失败: {str(e)}"
+    
+    @mcp.tool()
+    def get_stock_intraday_history(ts_code: str, trade_date: str, trade_time: str) -> str:
+        """
+        获取单只股票在历史某一时刻的快照数据（用于同刻量比计算）
+        
+        参数:
+            ts_code: 股票代码
+            trade_date: 历史日期 (YYYYMMDD)
+            trade_time: 历史时间 (HH:MM:SS)
+        """
+        try:
+            snapshot = stock_intraday_cache_manager.get_historical_snapshot(ts_code, trade_date, trade_time)
+            if not snapshot:
+                return f"未找到股票 {ts_code} 在 {trade_date} {trade_time} 之前的快照数据。"
+            
+            result = [
+                f"### 历史时刻快照数据: {ts_code}",
+                f"- **匹配日期**: {snapshot['trade_date']}",
+                f"- **匹配时刻**: {snapshot['trade_time']}",
+                f"- **当时价格**: {snapshot['close']}",
+                f"- **累计成交量**: {snapshot['vol']} 手",
+                f"- **累计成交额**: {snapshot['amount']} 千元",
+                f"- **数据采集时间**: {datetime.fromtimestamp(snapshot['created_at']).strftime('%Y-%m-%d %H:%M:%S')}"
+            ]
+            return "\n".join(result)
+        except Exception as e:
+            return f"查询失败: {str(e)}"
+
+    @mcp.tool()
+    def scan_realtime_strong_sectors(sector_type: str = "em_concept", top_n: int = 15) -> str:
+        """
+        实时强势板块扫描
+        
+        参数:
+            sector_type: 板块维度 ('sw_l2', 'em_industry', 'em_concept')
+            top_n: 返回排名前N的板块
+        """
+        token = get_tushare_token()
+        if not token:
+            return "请先配置Tushare token"
+            
+        try:
+            pro = ts.pro_api()
+            now = datetime.now()
+            current_time_str = now.strftime("%H:%M:%S")
+            
+            # 1. 获取全市场实时行情
+            print(f"[{current_time_str}] 🚀 正在抓取实时行情...", file=__import__('sys').stderr)
+            patterns = ['6*.SH', '0*.SZ', '3*.SZ', '4*.BJ', '8*.BJ']
+            rt_dfs = []
+            for p in patterns:
+                try:
+                    df_p = pro.rt_k(ts_code=p)
+                    if df_p is not None and not df_p.empty:
+                        rt_dfs.append(df_p)
+                except:
+                    continue
+            
+            if not rt_dfs:
+                return "未能获取到实时行情数据，请检查网络或API权限。"
+            df_rt = pd.concat(rt_dfs).set_index('ts_code')
+            
+            # 2. 获取股票-板块映射
+            print("📥 正在加载板块映射关系...", file=__import__('sys').stderr)
+            from cache.mapping_cache_manager import mapping_cache_manager
+            db_conn = mapping_cache_manager.conn
+            df_mapping = pd.read_sql_query("SELECT * FROM stock_sector_mapping", db_conn)
+            
+            if df_mapping.empty:
+                return "映射数据库为空，请先运行 collect_stock_sector_mapping。"
+
+            # 3. 准备昨日数据对比日期
+            # 简单取数据库中最近的一个日期作为基准日期
+            cursor = db_conn.cursor()
+            cursor.execute("SELECT MAX(trade_date) FROM stock_intraday_data")
+            last_date_row = cursor.fetchone()
+            hist_date = last_date_row[0] if last_date_row and last_date_row[0] else None
+
+            # 4. 聚合计算
+            sector_data = {} # {sector_name: {stocks: [], sum_pct: 0, sum_vol_now: 0, sum_vol_hist: 0, rising: 0}}
+            
+            print(f"📊 正在按 {sector_type} 进行强度分析...", file=__import__('sys').stderr)
+            
+            for _, row in df_mapping.iterrows():
+                ts_code = row['ts_code']
+                if ts_code not in df_rt.index:
+                    continue
+                
+                # 获取该股对应的板块名称
+                target_sectors = []
+                if sector_type == 'sw_l2':
+                    if row['sw_l2_name']: target_sectors.append(row['sw_l2_name'])
+                elif sector_type == 'em_industry':
+                    if row['em_industry_name']: target_sectors.append(row['em_industry_name'])
+                elif sector_type == 'em_concept':
+                    try:
+                        names = json.loads(row['em_concept_names'])
+                        target_sectors.extend(names)
+                    except:
+                        pass
+                
+                rt_row = df_rt.loc[ts_code]
+                pct = rt_row.get('pct_chg', 0)
+                if pd.isna(pct) and 'pre_close' in df_rt.columns and rt_row['pre_close'] > 0:
+                    pct = (rt_row['close'] - rt_row['pre_close']) / rt_row['pre_close'] * 100
+                
+                vol_now = rt_row.get('vol', 0)
+                
+                # 获取历史同刻成交量 (增加 10 分钟偏差校验)
+                vol_hist = 0
+                if hist_date:
+                    hist_snap = stock_intraday_cache_manager.get_historical_snapshot(ts_code, hist_date, current_time_str)
+                    if hist_snap:
+                        # 检查时间偏差是否在合理范围内 (例如 10 分钟)
+                        try:
+                            t1 = datetime.strptime(current_time_str, "%H:%M:%S")
+                            t2 = datetime.strptime(hist_snap['trade_time'], "%H:%M:%S")
+                            diff_sec = abs((t1 - t2).total_seconds())
+                            if diff_sec <= 600: # 10分钟以内
+                                vol_hist = hist_snap.get('vol', 0)
+                        except:
+                            pass
+
+                for s_name in target_sectors:
+                    if s_name not in sector_data:
+                        sector_data[s_name] = {'count': 0, 'sum_pct': 0, 'sum_vol_now': 0, 'sum_vol_hist': 0, 'rising': 0}
+                    
+                    sector_data[s_name]['count'] += 1
+                    sector_data[s_name]['sum_pct'] += pct
+                    sector_data[s_name]['sum_vol_now'] += vol_now
+                    sector_data[s_name]['sum_vol_hist'] += vol_hist
+                    if pct > 0:
+                        sector_data[s_name]['rising'] += 1
+
+            # 5. 打分与排名
+            results = []
+            for name, d in sector_data.items():
+                if d['count'] < 3: continue # 过滤掉样本太少的板块
+                
+                avg_pct = d['sum_pct'] / d['count']
+                vr = d['sum_vol_now'] / d['sum_vol_hist'] if d['sum_vol_hist'] > 0 else 1.0
+                rising_ratio = d['rising'] / d['count'] * 100
+                
+                # 强度得分公式: 涨幅(50%) + 量比(30%) + 涨家数占比(20%)
+                # 注意: VR 需要做归一化或限制，防止极端值干扰
+                vr_score = min(vr, 5.0) / 5.0 * 100 
+                score = avg_pct * 5 + vr_score * 0.3 + rising_ratio * 0.2
+                
+                results.append({
+                    '板块名称': name,
+                    '平均涨幅': f"{avg_pct:.2f}%",
+                    '实时量比': f"{vr:.2f}",
+                    '上涨家数比': f"{rising_ratio:.1f}%",
+                    '成分股数': d['count'],
+                    'score': score
+                })
+            
+            df_res = pd.DataFrame(results).sort_values('score', ascending=False).head(top_n)
+            
+            if df_res.empty:
+                return "未扫描到显著强势的板块。"
+
+            output = [f"### 实时强势板块扫描 (维度: {sector_type}, 时间: {current_time_str})"]
+            output.append("| 板块名称 | 平均涨幅 | 实时量比 | 上涨占比 | 成分股数 | 综合评分 |")
+            output.append("| --- | --- | --- | --- | --- | --- |")
+            for _, r in df_res.iterrows():
+                output.append(f"| {r['板块名称']} | {r['平均涨幅']} | {r['实时量比']} | {r['上涨家数比']} | {r['成分股数']} | {r['score']:.2f} |")
+                
+            return "\n".join(output)
+            
+        except Exception as e:
+            import traceback
+            return f"扫描失败: {str(e)}\n{traceback.format_exc()}"
     
     @mcp.tool()
     def search_stocks(keyword: str) -> str:
