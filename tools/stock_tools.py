@@ -341,7 +341,6 @@ def register_stock_tools(mcp: "FastMCP"):
             df_rt = pd.concat(rt_dfs).set_index('ts_code')
             
             # 2. 获取股票-板块映射
-            print("📥 正在加载板块映射关系...", file=__import__('sys').stderr)
             from cache.mapping_cache_manager import mapping_cache_manager
             db_conn = mapping_cache_manager.conn
             df_mapping = pd.read_sql_query("SELECT * FROM stock_sector_mapping", db_conn)
@@ -350,23 +349,19 @@ def register_stock_tools(mcp: "FastMCP"):
                 return "映射数据库为空，请先运行 collect_stock_sector_mapping。"
 
             # 3. 准备昨日数据对比日期
-            # 简单取数据库中最近的一个日期作为基准日期
             cursor = db_conn.cursor()
             cursor.execute("SELECT MAX(trade_date) FROM stock_intraday_data")
             last_date_row = cursor.fetchone()
             hist_date = last_date_row[0] if last_date_row and last_date_row[0] else None
 
             # 4. 聚合计算
-            sector_data = {} # {sector_name: {stocks: [], sum_pct: 0, sum_vol_now: 0, sum_vol_hist: 0, rising: 0}}
-            
-            print(f"📊 正在按 {sector_type} 进行强度分析...", file=__import__('sys').stderr)
+            sector_data = {} 
             
             for _, row in df_mapping.iterrows():
                 ts_code = row['ts_code']
                 if ts_code not in df_rt.index:
                     continue
                 
-                # 获取该股对应的板块名称
                 target_sectors = []
                 if sector_type == 'sw_l2':
                     if row['sw_l2_name']: target_sectors.append(row['sw_l2_name'])
@@ -376,8 +371,7 @@ def register_stock_tools(mcp: "FastMCP"):
                     try:
                         names = json.loads(row['em_concept_names'])
                         target_sectors.extend(names)
-                    except:
-                        pass
+                    except: pass
                 
                 rt_row = df_rt.loc[ts_code]
                 pct = rt_row.get('pct_chg', 0)
@@ -385,72 +379,166 @@ def register_stock_tools(mcp: "FastMCP"):
                     pct = (rt_row['close'] - rt_row['pre_close']) / rt_row['pre_close'] * 100
                 
                 vol_now = rt_row.get('vol', 0)
-                
-                # 获取历史同刻成交量 (增加 10 分钟偏差校验)
                 vol_hist = 0
                 if hist_date:
                     hist_snap = stock_intraday_cache_manager.get_historical_snapshot(ts_code, hist_date, current_time_str)
                     if hist_snap:
-                        # 检查时间偏差是否在合理范围内 (例如 10 分钟)
                         try:
                             t1 = datetime.strptime(current_time_str, "%H:%M:%S")
                             t2 = datetime.strptime(hist_snap['trade_time'], "%H:%M:%S")
-                            diff_sec = abs((t1 - t2).total_seconds())
-                            if diff_sec <= 600: # 10分钟以内
+                            if abs((t1 - t2).total_seconds()) <= 600:
                                 vol_hist = hist_snap.get('vol', 0)
-                        except:
-                            pass
-
+                        except: pass
+                
                 for s_name in target_sectors:
                     if s_name not in sector_data:
                         sector_data[s_name] = {'count': 0, 'sum_pct': 0, 'sum_vol_now': 0, 'sum_vol_hist': 0, 'rising': 0}
-                    
                     sector_data[s_name]['count'] += 1
                     sector_data[s_name]['sum_pct'] += pct
                     sector_data[s_name]['sum_vol_now'] += vol_now
                     sector_data[s_name]['sum_vol_hist'] += vol_hist
-                    if pct > 0:
-                        sector_data[s_name]['rising'] += 1
+                    if pct > 0: sector_data[s_name]['rising'] += 1
 
-            # 5. 打分与排名
             results = []
             for name, d in sector_data.items():
-                if d['count'] < 3: continue # 过滤掉样本太少的板块
-                
+                if d['count'] < 3: continue 
                 avg_pct = d['sum_pct'] / d['count']
                 vr = d['sum_vol_now'] / d['sum_vol_hist'] if d['sum_vol_hist'] > 0 else 1.0
                 rising_ratio = d['rising'] / d['count'] * 100
-                
-                # 强度得分公式: 涨幅(50%) + 量比(30%) + 涨家数占比(20%)
-                # 注意: VR 需要做归一化或限制，防止极端值干扰
                 vr_score = min(vr, 5.0) / 5.0 * 100 
                 score = avg_pct * 5 + vr_score * 0.3 + rising_ratio * 0.2
-                
                 results.append({
-                    '板块名称': name,
-                    '平均涨幅': f"{avg_pct:.2f}%",
-                    '实时量比': f"{vr:.2f}",
-                    '上涨家数比': f"{rising_ratio:.1f}%",
-                    '成分股数': d['count'],
-                    'score': score
+                    '板块名称': name, '平均涨幅': f"{avg_pct:.2f}%", '实时量比': f"{vr:.2f}",
+                    '上涨家数比': f"{rising_ratio:.1f}%", '成分股数': d['count'], 'score': score
                 })
             
             df_res = pd.DataFrame(results).sort_values('score', ascending=False).head(top_n)
-            
-            if df_res.empty:
-                return "未扫描到显著强势的板块。"
+            if df_res.empty: return "未扫描到显著强势的板块。"
 
             output = [f"### 实时强势板块扫描 (维度: {sector_type}, 时间: {current_time_str})"]
             output.append("| 板块名称 | 平均涨幅 | 实时量比 | 上涨占比 | 成分股数 | 综合评分 |")
             output.append("| --- | --- | --- | --- | --- | --- |")
             for _, r in df_res.iterrows():
                 output.append(f"| {r['板块名称']} | {r['平均涨幅']} | {r['实时量比']} | {r['上涨家数比']} | {r['成分股数']} | {r['score']:.2f} |")
-                
             return "\n".join(output)
-            
         except Exception as e:
             import traceback
             return f"扫描失败: {str(e)}\n{traceback.format_exc()}"
+
+    @mcp.tool()
+    def analyze_sector_health(sector_type: str = "em_industry", benchmark_code: str = "000001.SH", top_n: int = 15) -> str:
+        """
+        板块走势健康度分析（基于时序统计和线性回归）
+        
+        参数:
+            sector_type: 板块维度 ('sw_l2', 'em_industry', 'em_concept')
+            benchmark_code: 基准指数 (默认 000001.SH 上证指数)
+            top_n: 返回前N个健康板块
+        """
+        token = get_tushare_token()
+        if not token: return "请查询Tushare token"
+        
+        try:
+            import numpy as np
+            pro = ts.pro_api()
+            now = datetime.now()
+            trade_date = now.strftime("%Y%m%d")
+            
+            # 1. 获取基准行情
+            df_benchmark = pro.rt_k(ts_code=benchmark_code)
+            benchmark_pct = 0
+            if not df_benchmark.empty:
+                row = df_benchmark.iloc[0]
+                benchmark_pct = (row['close'] - row['pre_close']) / row['pre_close'] * 100 if row['pre_close'] > 0 else 0
+
+            # 2. 从数据库加载最近 1 小时的评分快照 (12个周期)
+            from cache.sector_strength_cache_manager import sector_strength_cache_manager
+            db_conn = sector_strength_cache_manager.conn
+            query = f"""
+            SELECT sector_name, trade_time, avg_pct, volume_ratio, rising_ratio, score 
+            FROM sector_strength_data 
+            WHERE trade_date = '{trade_date}' AND sector_type = '{sector_type}'
+            ORDER BY sector_name, trade_time DESC
+            """
+            df_hist = pd.read_sql_query(query, db_conn)
+            if df_hist.empty: return "今天尚未记录板块强度统计数据，请先运行 sector_strength_collector.py。"
+                
+            health_results = []
+            for name, group in df_hist.groupby('sector_name'):
+                if len(group) < 3: continue 
+                group = group.head(12).iloc[::-1] 
+                y = group['score'].values
+                x = np.arange(len(y))
+                slope = np.polyfit(x, y, 1)[0] if len(y) > 1 else 0
+                vol_stability = (group['volume_ratio'] > 1.2).sum() / len(group)
+                avg_breadth = group['rising_ratio'].mean()
+                current_avg_pct = group.iloc[-1]['avg_pct']
+                relative_strength = current_avg_pct - benchmark_pct
+                
+                slope_score = np.clip(slope * 10, -50, 50) 
+                health_score = (slope_score + 50) * 0.4 + (vol_stability * 100) * 0.3 + avg_breadth * 0.2 + (relative_strength * 10 + 50) * 0.1
+                rating = "C (观望)"
+                if health_score > 75 and slope > 0: rating = "A (强势健康)"
+                elif health_score > 60 and slope > -0.1: rating = "B (平稳运行)"
+                
+                health_results.append({
+                    '板块名称': name, '趋势斜率': f"{slope:.3f}", '量能热度': f"{vol_stability*100:.1f}%",
+                    '内生广度': f"{avg_breadth:.1f}%", '相对大盘': f"{relative_strength:+.2f}%",
+                    '健康分': health_score, '评级': rating
+                })
+                
+            df_health = pd.DataFrame(health_results).sort_values('健康分', ascending=False).head(top_n)
+            if df_health.empty: return "暂无数据符合健康度分析标准。"
+                
+            output = [f"### 板块走势健康度分析表 (周期: 1小时, 基准: {benchmark_code})"]
+            output.append("| 板块名称 | 健康评级 | 趋势斜率 | 量能连贯性 | 平均广度 | 相对强度 | 综合分 |")
+            output.append("| --- | --- | --- | --- | --- | --- | --- |")
+            for _, r in df_health.iterrows():
+                output.append(f"| {r['板块名称']} | **{r['评级']}** | {r['趋势斜率']} | {r['量能热度']} | {r['内生广度']} | {r['相对大盘']} | {r['健康分']:.1f} |")
+            return "\n".join(output)
+        except Exception as e:
+            import traceback
+            return f"分析过程出错: {str(e)}\n{traceback.format_exc()}"
+
+    @mcp.tool()
+    def get_index_rt_k(ts_code: str = "") -> str:
+        """
+        获取沪深京实时日线指标接口（指数专用）
+        
+        参数:
+            ts_code: 支持通配符方式，例如 6*.SH、3*.SZ、600000.SH
+        """
+        token = get_tushare_token()
+        if not token: return "请先配置Tushare token"
+        if not ts_code: return "请提供ts_code"
+        try:
+            pro = ts.pro_api()
+            df = pro.rt_k(ts_code=ts_code)
+            if df is None or df.empty: return f"未找到数据: {ts_code}"
+            
+            # 计算涨跌幅
+            if 'pre_close' in df.columns and 'close' in df.columns:
+                df['pct_chg'] = (df['close'] - df['pre_close']) / df['pre_close'] * 100
+                
+            df = df.sort_values('vol', ascending=False, na_position='last')
+            
+            output = [f"### 实时日线快照 ({ts_code})"]
+            cols = ['ts_code', 'name', 'pre_close', 'open', 'close', 'high', 'low', 'pct_chg', 'vol', 'amount']
+            col_names = ['代码', '名称', '昨收', '开盘', '现价', '最高', '最低', '涨幅', '成交量', '金额']
+            output.append("| " + " | ".join(col_names) + " |")
+            output.append("| " + " | ".join(["---"] * len(col_names)) + " |")
+            
+            for _, r in df.iterrows():
+                vals = [
+                    str(r.get('ts_code','')), str(r.get('name','')), f"{r.get('pre_close',0):.2f}",
+                    f"{r.get('open',0):.2f}", f"{r.get('close',0):.2f}", f"{r.get('high',0):.2f}",
+                    f"{r.get('low',0):.2f}", f"{r.get('pct_chg',0):+.2f}%", f"{r.get('vol',0)/10000:.0f}万",
+                    f"{r.get('amount',0)/100000000:.2f}亿"
+                ]
+                output.append("| " + " | ".join(vals) + " |")
+            return "\n".join(output)
+        except Exception as e:
+            return f"查询失败: {str(e)}"
     
     @mcp.tool()
     def search_stocks(keyword: str) -> str:

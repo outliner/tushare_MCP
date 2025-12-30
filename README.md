@@ -417,3 +417,11 @@ Alpha策略分析：6个
 
 统计分时线的脚本
 python g:\AICode\tocker-mcp\tushare_MCP\scripts\realtime_collector.py
+
+统计板块强度的脚本
+python g:\AICode\tocker-mcp\tushare_MCP\scripts\sector_strength_collector.py
+
+
+analyze_sector_health: 新增板块健康度分析工具。它通过对过去一小时的板块评分进行线性回归，计算趋势斜率（Slope），并结合成交量连贯性和内生广度（上涨占比），对板块走势的可持续性进行 A/B/C 评级。
+get_index_rt_k: 基于你提供的 rt_k API 文献实现。专用于获取指数（如 000001.SH 上证指数）的实时日线快照，方便作为相对强度的基准。
+scan_realtime_strong_sectors: 优化了实时强度扫描逻辑，现在会自动抓取全市场行情（6字头、0字头、3字头、北交所等通配符），并更精确地与昨日同刻成交量进行对比。
