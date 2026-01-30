@@ -1,0 +1,23 @@
+# Exclude heavy folders that are NOT needed in the image
+.git/
+.cache/
+node_modules/
+tests/
+.vscode/
+
+# Exclude temporary data and logs
+result/
+*.log
+stderr.log
+analysis_output.txt
+report.txt
+
+# Exclude Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Include the source code and the database folder
+# (By NOT listing 'cache/' here, it will be included)
+# (Note: .dockerignore works by excluding, so if it's not listed, it's included)

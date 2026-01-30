@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "tushare": {
+      "command": "python",
+      "args": [
+        "d:\\AI\\tushare_MCP\\server.py"
+      ]
+    }
+  }
+}
