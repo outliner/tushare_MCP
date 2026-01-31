@@ -34,7 +34,6 @@ ENV/
 
 # Tushare MCP specific
 .cache/
-cache/
 .test/
 *.db
 *.db-wal
