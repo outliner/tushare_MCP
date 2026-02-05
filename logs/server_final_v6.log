@@ -1,0 +1,196 @@
+2026-02-02 22:27:48,144 - __main__ - INFO - 已成功应用 MCP StreamableHTTPServerTransport 会话验证补丁
+正在初始化 Tushare MCP Server (Streamable HTTP)...
+\u2713 已从 项目本地 .env 加载 Tushare token
+
+============================================================
+正在注册 MCP 工具...
+============================================================
+开始自动发现MCP工具...
+\u2713 已自动注册工具: register_alpha_tools (来自 alpha_tools)
+\u2713 已自动注册工具: register_cache_tools (来自 cache_tools)
+\u2713 已自动注册工具: register_concept_tools (来自 concept_tools)
+\u2713 已自动注册工具: register_financial_tools (来自 financial_tools)
+\u2713 已自动注册工具: register_futures_tools (来自 futures_tools)
+\u2713 已自动注册工具: register_fx_tools (来自 fx_tools)
+\u2713 已自动注册工具: register_index_tools (来自 index_tools)
+\u2713 已自动注册工具: register_inst_track_tools (来自 inst_track_tools)
+\u2713 已自动注册工具: register_macro_scan_tools (来自 macro_scan_tools)
+\u2713 已自动注册工具: register_margin_tools (来自 margin_tools)
+\u2713 已自动注册工具: register_sector_constituents_health_tools (来自 sector_constituents_health)
+\u2713 已自动注册工具: register_stock_filter_tools (来自 stock_filter_tools)
+\u2713 已自动注册工具: register_stock_tools (来自 stock_tools)
+\u2713 已自动注册工具: register_volume_tools (来自 volume_tools)
+工具发现完成，共注册 14 个工具模块
+
+\u2713 工具注册完成，共 14 个模块
+============================================================
+
+\u2713 已提取 0 个工具函数
+
+============================================================
+\U0001f680 启动 Tushare MCP Server (Streamable HTTP)
+============================================================
+\U0001f4cd 本地访问:    http://127.0.0.1:8001
+\U0001f4cd 局域网访问:  http://172.19.0.1:8001
+\U0001f4cd MCP 端点:    http://127.0.0.1:8001/mcp
+\U0001f4cd 健康检查:    http://127.0.0.1:8001/health
+\U0001f4cd 工具列表:    http://127.0.0.1:8001/tools
+============================================================
+
+INFO:     Started server process [23308]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+2026-02-02 22:28:11,781 - __main__ - INFO - [GET] / - 状态: 200 - 耗时: 0.0000s
+INFO:     127.0.0.1:53090 - "GET / HTTP/1.1" 200 OK
+2026-02-02 22:28:11,786 - __main__ - INFO - [GET] /health - 状态: 200 - 耗时: 0.0010s
+INFO:     127.0.0.1:53091 - "GET /health HTTP/1.1" 200 OK
+2026-02-02 22:28:11,789 - __main__ - INFO - [GET] /tools - 状态: 200 - 耗时: 0.0000s
+INFO:     127.0.0.1:53092 - "GET /tools HTTP/1.1" 200 OK
+2026-02-02 22:28:11,793 - __main__ - INFO - [GET] /mcp - 状态: 307 - 耗时: 0.0010s
+INFO:     127.0.0.1:53093 - "GET /mcp HTTP/1.1" 307 Temporary Redirect
+2026-02-02 22:28:11,820 - __main__ - INFO - [GET] /mcp/ - 状态: 404 - 耗时: 0.0000s
+INFO:     127.0.0.1:53095 - "GET /mcp/ HTTP/1.1" 404 Not Found
+2026-02-02 22:28:11,824 - __main__ - INFO - [POST] /mcp - 状态: 307 - 耗时: 0.0000s
+INFO:     127.0.0.1:53096 - "POST /mcp HTTP/1.1" 307 Temporary Redirect
+2026-02-02 22:28:11,827 - __main__ - INFO - [POST] /mcp/ - 状态: 404 - 耗时: 0.0000s
+INFO:     127.0.0.1:53098 - "POST /mcp/ HTTP/1.1" 404 Not Found
+2026-02-02 22:28:27,109 - __main__ - INFO - [GET] / - 状态: 200 - 耗时: 0.0000s
+INFO:     127.0.0.1:53117 - "GET / HTTP/1.1" 200 OK
+2026-02-02 22:28:27,112 - __main__ - INFO - [GET] /health - 状态: 200 - 耗时: 0.0010s
+INFO:     127.0.0.1:53118 - "GET /health HTTP/1.1" 200 OK
+2026-02-02 22:28:27,114 - __main__ - INFO - [GET] /tools - 状态: 200 - 耗时: 0.0010s
+INFO:     127.0.0.1:53119 - "GET /tools HTTP/1.1" 200 OK
+2026-02-02 22:28:27,130 - __main__ - INFO - [GET] /mcp - 状态: 307 - 耗时: 0.0000s
+INFO:     127.0.0.1:53120 - "GET /mcp HTTP/1.1" 307 Temporary Redirect
+2026-02-02 22:28:27,161 - __main__ - INFO - [GET] /mcp/ - 状态: 404 - 耗时: 0.0000s
+INFO:     127.0.0.1:53122 - "GET /mcp/ HTTP/1.1" 404 Not Found
+2026-02-02 22:28:27,177 - __main__ - INFO - [GET] /mcp/mcp - 状态: 500 - 耗时: 0.0000s
+INFO:     127.0.0.1:53123 - "GET /mcp/mcp HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 403, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\LMW\AI\tushare_MCP\server_http.py", line 113, in __call__
+    return await self.app(scope, receive, send_wrapper)
+  File "D:\LMW\AI\tushare_MCP\server_http.py", line 154, in __call__
+    return await self.app(scope, receive, send)
+  File "D:\LMW\AI\tushare_MCP\server_http.py", line 183, in __call__
+    return await self.app(scope, receive, send_wrapper)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 462, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\mcp\server\fastmcp\server.py", line 1089, in __call__
+    await self.session_manager.handle_request(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\mcp\server\streamable_http_manager.py", line 143, in handle_request
+    raise RuntimeError("Task group is not initialized. Make sure to use run().")
+RuntimeError: Task group is not initialized. Make sure to use run().
+2026-02-02 22:28:27,180 - __main__ - INFO - [POST] /mcp - 状态: 307 - 耗时: 0.0000s
+INFO:     127.0.0.1:53124 - "POST /mcp HTTP/1.1" 307 Temporary Redirect
+2026-02-02 22:28:27,193 - __main__ - INFO - [POST] /mcp/ - 状态: 404 - 耗时: 0.0000s
+INFO:     127.0.0.1:53126 - "POST /mcp/ HTTP/1.1" 404 Not Found
+2026-02-02 22:29:04,345 - __main__ - INFO - [GET] / - 状态: 200 - 耗时: 0.0000s
+INFO:     127.0.0.1:53161 - "GET / HTTP/1.1" 200 OK
+2026-02-02 22:29:04,348 - __main__ - INFO - [GET] /health - 状态: 200 - 耗时: 0.0010s
+INFO:     127.0.0.1:53162 - "GET /health HTTP/1.1" 200 OK
+2026-02-02 22:29:04,351 - __main__ - INFO - [GET] /tools - 状态: 200 - 耗时: 0.0000s
+INFO:     127.0.0.1:53163 - "GET /tools HTTP/1.1" 200 OK
+2026-02-02 22:29:04,354 - __main__ - INFO - [GET] /mcp - 状态: 307 - 耗时: 0.0000s
+INFO:     127.0.0.1:53164 - "GET /mcp HTTP/1.1" 307 Temporary Redirect
+2026-02-02 22:29:04,369 - __main__ - INFO - [GET] /mcp/ - 状态: 404 - 耗时: 0.0000s
+INFO:     127.0.0.1:53166 - "GET /mcp/ HTTP/1.1" 404 Not Found
+2026-02-02 22:29:04,372 - __main__ - INFO - [GET] /mcp/mcp - 状态: 500 - 耗时: 0.0000s
+INFO:     127.0.0.1:53167 - "GET /mcp/mcp HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 403, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\LMW\AI\tushare_MCP\server_http.py", line 113, in __call__
+  File "D:\LMW\AI\tushare_MCP\server_http.py", line 154, in __call__
+  File "D:\LMW\AI\tushare_MCP\server_http.py", line 183, in __call__
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 462, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\mcp\server\fastmcp\server.py", line 1089, in __call__
+    await self.session_manager.handle_request(scope, receive, send)
+  File "C:\Users\32780\AppData\Local\Programs\Python\Python310\lib\site-packages\mcp\server\streamable_http_manager.py", line 143, in handle_request
+    raise RuntimeError("Task group is not initialized. Make sure to use run().")
+RuntimeError: Task group is not initialized. Make sure to use run().
+2026-02-02 22:29:04,375 - __main__ - INFO - [POST] /mcp - 状态: 307 - 耗时: 0.0000s
+INFO:     127.0.0.1:53168 - "POST /mcp HTTP/1.1" 307 Temporary Redirect
+2026-02-02 22:29:04,399 - __main__ - INFO - [POST] /mcp/ - 状态: 404 - 耗时: 0.0000s
+INFO:     127.0.0.1:53170 - "POST /mcp/ HTTP/1.1" 404 Not Found

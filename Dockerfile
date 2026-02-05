@@ -31,7 +31,7 @@ RUN mkdir -p /app/logs /app/.cache
 ENV PYTHONUNBUFFERED=1
 
 # 暴露 HTTP 端口
-EXPOSE 8000
+EXPOSE 8001
 
 # 使用 supervisord 启动所有服务
 CMD ["supervisord", "-c", "supervisord.conf"]

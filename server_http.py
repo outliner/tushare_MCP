@@ -12,13 +12,13 @@ Tushare MCP服务器 - Streamable HTTP 模式
     python server_http.py
     
     或使用 uvicorn:
-    uvicorn server_http:app --host 127.0.0.1 --port 8000
+    uvicorn server_http:app --host 127.0.0.1 --port 8001
 
 配置方式（在 Claude Desktop 或其他 MCP 客户端）：
     {
       "mcpServers": {
         "tushare": {
-          "url": "http://localhost:8000/mcp"
+          "url": "http://localhost:8001/mcp"
         }
       }
     }
@@ -48,6 +48,7 @@ from tools import discover_tools
 
 # 导入 MCP 服务器核心
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 # 配置日志
 logging.basicConfig(
@@ -122,7 +123,12 @@ class TushareMCPServer:
     """Tushare MCP 服务器（Streamable HTTP 模式）"""
     
     def __init__(self):
-        self.mcp = FastMCP("Tushare Stock Info")
+        self.mcp = FastMCP(
+            "Tushare Stock Info",
+            transport_security=TransportSecuritySettings(
+                enable_dns_rebinding_protection=False
+            )
+        )
         self.tools = {}
         self._initialize()
         self._wrap_sync_tools()
@@ -273,6 +279,7 @@ mcp_server = TushareMCPServer()
 
 # 获取 FastMCP 的 Streamable HTTP 应用
 # streamable_http_app() 返回一个完整的 Starlette 应用，在 /mcp 端点处理 JSON-RPC 请求
+# 已经在 FastMCP 初始化时禁用了 DNS rebinding 保护
 app = mcp_server.mcp.streamable_http_app()
 
 # 添加自定义路由到 FastMCP 的应用
@@ -300,9 +307,9 @@ if __name__ == "__main__":
     print("\n" + "="*60, file=sys.stderr)
     print("🚀 启动 Tushare MCP Server (Streamable HTTP)", file=sys.stderr)
     print("="*60, file=sys.stderr)
-    print(f"📍 MCP 端点:  http://127.0.0.1:8000/mcp", file=sys.stderr)
-    print(f"📍 健康检查: http://127.0.0.1:8000/health", file=sys.stderr)
-    print(f"📍 工具列表: http://127.0.0.1:8000/tools", file=sys.stderr)
+    print(f"📍 MCP 端点:  http://127.0.0.1:8001/mcp", file=sys.stderr)
+    print(f"📍 健康检查: http://127.0.0.1:8001/health", file=sys.stderr)
+    print(f"📍 工具列表: http://127.0.0.1:8001/tools", file=sys.stderr)
     print("="*60 + "\n", file=sys.stderr)
     
     # 启动服务器
@@ -315,7 +322,7 @@ if __name__ == "__main__":
         uvicorn.run(
             app,
             host="0.0.0.0",  # 绑定到所有接口，支持Docker和远程访问
-            port=8000,
+            port=8001,
             log_level="info",
             timeout_keep_alive=600,  # 10分钟，允许长时间运行的工具调用
             timeout_graceful_shutdown=30,  # 30秒优雅关闭时间

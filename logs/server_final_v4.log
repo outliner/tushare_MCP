@@ -1,0 +1,47 @@
+2026-02-02 22:23:14,466 - __main__ - INFO - 已成功应用 MCP StreamableHTTPServerTransport 会话验证补丁
+正在初始化 Tushare MCP Server (Streamable HTTP)...
+\u2713 已从 项目本地 .env 加载 Tushare token
+
+============================================================
+正在注册 MCP 工具...
+============================================================
+开始自动发现MCP工具...
+\u2713 已自动注册工具: register_alpha_tools (来自 alpha_tools)
+\u2713 已自动注册工具: register_cache_tools (来自 cache_tools)
+\u2713 已自动注册工具: register_concept_tools (来自 concept_tools)
+\u2713 已自动注册工具: register_financial_tools (来自 financial_tools)
+\u2713 已自动注册工具: register_futures_tools (来自 futures_tools)
+\u2713 已自动注册工具: register_fx_tools (来自 fx_tools)
+\u2713 已自动注册工具: register_index_tools (来自 index_tools)
+\u2713 已自动注册工具: register_inst_track_tools (来自 inst_track_tools)
+\u2713 已自动注册工具: register_macro_scan_tools (来自 macro_scan_tools)
+\u2713 已自动注册工具: register_margin_tools (来自 margin_tools)
+\u2713 已自动注册工具: register_sector_constituents_health_tools (来自 sector_constituents_health)
+\u2713 已自动注册工具: register_stock_filter_tools (来自 stock_filter_tools)
+\u2713 已自动注册工具: register_stock_tools (来自 stock_tools)
+\u2713 已自动注册工具: register_volume_tools (来自 volume_tools)
+工具发现完成，共注册 14 个工具模块
+
+\u2713 工具注册完成，共 14 个模块
+============================================================
+
+\u2713 已提取 0 个工具函数
+
+============================================================
+\U0001f680 启动 Tushare MCP Server (Streamable HTTP)
+============================================================
+\U0001f4cd 本地访问:    http://127.0.0.1:8001
+\U0001f4cd 局域网访问:  http://172.19.0.1:8001
+\U0001f4cd MCP 端点:    http://127.0.0.1:8001/mcp
+\U0001f4cd 健康检查:    http://127.0.0.1:8001/health
+\U0001f4cd 工具列表:    http://127.0.0.1:8001/tools
+============================================================
+
+INFO:     Started server process [35772]
+INFO:     Waiting for application startup.
+2026-02-02 22:23:14,686 - mcp.server.streamable_http_manager - INFO - StreamableHTTP session manager started
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8001): 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。
+INFO:     Waiting for application shutdown.
+2026-02-02 22:23:14,687 - mcp.server.streamable_http_manager - INFO - StreamableHTTP session manager shutting down
+INFO:     Application shutdown complete.

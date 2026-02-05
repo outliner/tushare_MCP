@@ -33,14 +33,14 @@ if errorlevel 1 (
 )
 
 REM 检查端口占用
-echo [2/4] 检查端口占用 (8000)...
-netstat -ano | findstr ":8000" | findstr "LISTENING" >nul 2>&1
+echo [2/4] 检查端口占用 (8001)...
+netstat -ano | findstr ":8001" | findstr "LISTENING" >nul 2>&1
 if not errorlevel 1 (
-    echo [警告] 端口 8000 已被占用！
+    echo [警告] 端口 8001 已被占用！
     echo.
     
     REM 获取占用端口的进程ID
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING"') do (
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8001" ^| findstr "LISTENING"') do (
         set PID=%%a
         goto :found_pid
     )
@@ -132,9 +132,9 @@ echo [7/7] 启动 Streamable HTTP 服务器...
 echo.
 echo ========================================
 echo 服务器信息:
-echo   - MCP 端点:    http://127.0.0.1:8000/mcp
-echo   - 健康检查:    http://127.0.0.1:8000/health
-echo   - 工具列表:    http://127.0.0.1:8000/tools
+echo   - MCP 端点:    http://127.0.0.1:8001/mcp
+echo   - 健康检查:    http://127.0.0.1:8001/health
+echo   - 工具列表:    http://127.0.0.1:8001/tools
 echo.
 echo 后台进程:
 echo   - realtime_collector (分时数据采集)

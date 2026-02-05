@@ -26,7 +26,7 @@ async def test_health_check():
     
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get("http://127.0.0.1:8000/health", timeout=10.0)
+            response = await client.get("http://127.0.0.1:8001/health", timeout=10.0)
             print(f"状态码: {response.status_code}")
             
             if response.status_code == 200:
@@ -58,7 +58,7 @@ async def test_tools_list():
     
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get("http://127.0.0.1:8000/tools", timeout=10.0)
+            response = await client.get("http://127.0.0.1:8001/tools", timeout=10.0)
             print(f"状态码: {response.status_code}")
             
             if response.status_code == 200:
@@ -105,7 +105,7 @@ async def test_mcp_endpoint():
             
             # Streamable HTTP requires both application/json and text/event-stream in Accept header
             response = await client.post(
-                "http://127.0.0.1:8000/mcp",
+                "http://127.0.0.1:8001/mcp",
                 json=request_data,
                 headers={
                     "Content-Type": "application/json",
@@ -161,7 +161,7 @@ async def test_tool_call():
             
             # Streamable HTTP requires both application/json and text/event-stream in Accept header
             response = await client.post(
-                "http://127.0.0.1:8000/mcp",
+                "http://127.0.0.1:8001/mcp",
                 json=request_data,
                 headers={
                     "Content-Type": "application/json",
@@ -242,7 +242,7 @@ async def main():
         print("\n所有测试通过！服务器运行正常。")
         print("\n下一步:")
         print("1. 在 Claude Desktop 配置文件中添加:")
-        print('   {"url": "http://127.0.0.1:8000/mcp"}')
+        print('   {"url": "http://127.0.0.1:8001/mcp"}')
         print("2. 重启 Claude Desktop")
         print("3. 开始使用 Tushare MCP 工具")
     else:
