@@ -25,6 +25,7 @@ Tushare MCP服务器 - Streamable HTTP 模式
 """
 import os
 import sys
+import io
 import traceback
 import logging
 import asyncio
@@ -32,6 +33,13 @@ import functools
 from pathlib import Path
 from typing import Callable
 from concurrent.futures import ThreadPoolExecutor
+
+# 修复 Windows 终端中文乱码问题
+# 即使 bat 脚本设置了 chcp 65001 和 PYTHONIOENCODING，
+# Python 的 stderr 仍可能使用系统默认编码（GBK）
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 import tushare as ts
 from starlette.responses import JSONResponse, Response, StreamingResponse
