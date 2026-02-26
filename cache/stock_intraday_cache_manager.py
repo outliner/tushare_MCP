@@ -19,8 +19,8 @@ class StockIntradayCacheManager:
     def __init__(self, db_path: Path = CACHE_DB):
         """初始化分时快照缓存管理器"""
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        # self.conn.execute('PRAGMA journal_mode=WAL')
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self._init_database()
     
     def _init_database(self):

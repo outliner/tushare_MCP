@@ -89,7 +89,7 @@ if ! python3 -c "from config.token_manager import get_tushare_token; token = get
 fi
 
 # 检查板块映射数据是否已初始化
-echo "[4/7] 检查板块映射数据..."
+echo "[4/5] 检查板块映射数据..."
 if ! python3 -c "from cache.mapping_cache_manager import mapping_cache_manager; import sys; sys.exit(0 if mapping_cache_manager.get_mapping_count() > 0 else 1)" &> /dev/null; then
     echo "[提示] 板块映射数据为空，正在初始化（约需5-10分钟）..."
     python3 scripts/collect_sector_mapping.py
@@ -103,36 +103,16 @@ else
 fi
 echo ""
 
-# 后台启动实时数据采集器
-echo "[5/7] 启动实时数据采集器（后台）..."
-nohup python3 scripts/realtime_collector.py > /dev/null 2>&1 &
-REALTIME_PID=$!
-echo "[OK] realtime_collector 已在后台启动 (PID: $REALTIME_PID)"
-echo ""
-
-# 后台启动板块强度采集器
-echo "[6/7] 启动板块强度采集器（后台）..."
-nohup python3 scripts/sector_strength_collector.py > /dev/null 2>&1 &
-STRENGTH_PID=$!
-echo "[OK] sector_strength_collector 已在后台启动 (PID: $STRENGTH_PID)"
-echo ""
-
 # 启动服务器
-echo "[7/7] 启动 HTTP SSE 服务器..."
+echo "[5/5] 启动 Streamable HTTP 服务器..."
 echo ""
 echo "========================================"
 echo "服务器信息:"
-echo "  - SSE 端点:    http://127.0.0.1:8000/sse"
+echo "  - MCP 端点:    http://127.0.0.1:8000/mcp"
 echo "  - 健康检查:    http://127.0.0.1:8000/health"
 echo "  - 工具列表:    http://127.0.0.1:8000/tools"
-echo "  - 消息端点:    http://127.0.0.1:8000/messages"
-echo ""
-echo "后台进程:"
-echo "  - realtime_collector (PID: $REALTIME_PID)"
-echo "  - sector_strength_collector (PID: $STRENGTH_PID)"
 echo ""
 echo "按 Ctrl+C 停止服务器"
-echo "停止后台进程: kill $REALTIME_PID $STRENGTH_PID"
 echo "========================================"
 echo ""
 

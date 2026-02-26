@@ -103,7 +103,7 @@ if errorlevel 1 (
 )
 
 REM 检查板块映射数据是否已初始化
-echo [4/7] 检查板块映射数据...
+echo [4/5] 检查板块映射数据...
 python -c "from cache.mapping_cache_manager import mapping_cache_manager; import sys; sys.exit(0 if mapping_cache_manager.get_mapping_count() > 0 else 1)" >nul 2>&1
 if errorlevel 1 (
     echo [提示] 板块映射数据为空，正在初始化（约需5-10分钟）...
@@ -117,21 +117,10 @@ if errorlevel 1 (
     echo [OK] 板块映射数据已存在
 )
 echo.
-
-REM 后台启动实时数据采集器
-echo [5/7] 启动实时数据采集器（后台）...
-start /B python scripts\realtime_collector.py >nul 2>&1
-echo [OK] realtime_collector 已在后台启动
-echo.
-
-REM 后台启动板块强度采集器
-echo [6/7] 启动板块强度采集器（后台）...
-start /B python scripts\sector_strength_collector.py >nul 2>&1
-echo [OK] sector_strength_collector 已在后台启动
 echo.
 
 REM 启动服务器
-echo [7/7] 启动 Streamable HTTP 服务器...
+echo [5/5] 启动 Streamable HTTP 服务器...
 echo.
 echo ========================================
 echo 服务器信息:
@@ -139,11 +128,7 @@ echo   - MCP 端点:    http://127.0.0.1:8000/mcp
 echo   - 健康检查:    http://127.0.0.1:8000/health
 echo   - 工具列表:    http://127.0.0.1:8000/tools
 echo.
-echo 后台进程:
-echo   - realtime_collector (分时数据采集)
-echo   - sector_strength_collector (板块强度采集)
-echo.
-echo 按 Ctrl+C 停止服务器（后台进程需手动终止）
+echo 按 Ctrl+C 停止服务器
 echo ========================================
 echo.
 

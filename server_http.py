@@ -66,7 +66,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 创建线程池用于执行同步工具调用，避免阻塞事件循环
-_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="mcp_tool")
+_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="mcp_tool")
 
 
 class ConnectionKeepAliveMiddleware(BaseHTTPMiddleware):
@@ -200,11 +200,16 @@ class TushareMCPServer:
             try:
                 # 在线程池中执行同步函数，避免阻塞事件循环
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
+                future = loop.run_in_executor(
                     _executor,
                     lambda: original_func(*args, **kwargs)
                 )
+                # 设置 300 秒超时，防止工具调用无限阻塞线程池
+                result = await asyncio.wait_for(future, timeout=300)
                 return result
+            except asyncio.TimeoutError:
+                logger.error(f"工具 {tool_name} 执行超时（300秒）")
+                raise TimeoutError(f"工具 {tool_name} 执行超时，请稍后重试")
             except Exception as e:
                 logger.error(f"工具 {tool_name} 执行出错: {str(e)}", exc_info=True)
                 raise
