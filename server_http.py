@@ -126,6 +126,51 @@ class ExceptionHandlerMiddleware(BaseHTTPMiddleware):
                 )
 
 
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """日志中间件，用于记录所有请求的头部，帮助调试 406 错误"""
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # 只记录关键端点的日志，避免刷屏
+        if request.url.path in ["/mcp", "/health", "/tools"]:
+            logger.info(f"收到请求: {request.method} {request.url.path}")
+            logger.info(f"请求头部: {dict(request.headers)}")
+        
+        try:
+            response = await call_next(request)
+            if request.url.path in ["/mcp", "/health", "/tools"]:
+                logger.info(f"响应状态: {response.status_code}")
+            return response
+        except Exception as e:
+            logger.error(f"中间件处理出错: {str(e)}")
+            raise
+
+
+class ForceAcceptHeaderMiddleware(BaseHTTPMiddleware):
+    """强制添加 Accept 头部中间件，解决某些客户端不发送正确头部导致的 406 错误"""
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        if request.url.path.startswith("/mcp"):
+            # 如果是 MCP 端点且 Accept 头部不完整，补全它
+            accept = request.headers.get("accept", "")
+            if "text/event-stream" not in accept or "application/json" not in accept:
+                # 复制并修改头部
+                # 找到 accept 的索引或添加新的
+                new_accept = b"application/json, text/event-stream"
+                found = False
+                new_headers = []
+                for k, v in request.scope["headers"]:
+                    if k.lower() == b"accept":
+                        new_headers.append((k, new_accept))
+                        found = True
+                    else:
+                        new_headers.append((k, v))
+                if not found:
+                    new_headers.append((b"accept", new_accept))
+                
+                request.scope["headers"] = new_headers
+                logger.info("已强制重写 Accept 头部以匹配 MCP SDK 要求")
+                
+        return await call_next(request)
+
+
 class TushareMCPServer:
     """Tushare MCP 服务器（Streamable HTTP 模式）"""
     
@@ -184,8 +229,10 @@ class TushareMCPServer:
                 if hasattr(tool_manager, '_tools'):
                     tools_dict = tool_manager._tools
                     for tool_name, tool_info in tools_dict.items():
-                        if hasattr(tool_info, 'func'):
-                            self.tools[tool_name] = tool_info.func
+                        # FastMCP 的工具对象属性可能是 fn 或 func
+                        fn = getattr(tool_info, 'fn', getattr(tool_info, 'func', None))
+                        if fn:
+                            self.tools[tool_name] = fn
                         elif callable(tool_info):
                             self.tools[tool_name] = tool_info
                     print(f"✓ 已提取 {len(self.tools)} 个工具函数", file=sys.stderr)
@@ -226,18 +273,22 @@ class TushareMCPServer:
                     wrapped_count = 0
                     
                     for tool_name, tool_info in tools_dict.items():
-                        # 检查工具函数是否是同步的
-                        if hasattr(tool_info, 'func'):
-                            original_func = tool_info.func
-                            # 如果是同步函数（不是协程），则包装为异步
-                            if not asyncio.iscoroutinefunction(original_func):
-                                # 使用工厂函数创建包装器，确保正确捕获函数引用
-                                async_wrapper = self._create_async_wrapper(original_func, tool_name)
-                                
-                                # 替换原始函数
-                                tool_info.func = async_wrapper
-                                wrapped_count += 1
-                                logger.debug(f"已包装同步工具: {tool_name}")
+                        # FastMCP 的工具对象属性可能是 fn 或 func
+                        fn_attr = 'fn' if hasattr(tool_info, 'fn') else 'func' if hasattr(tool_info, 'func') else None
+                        if not fn_attr:
+                            continue
+                            
+                        original_func = getattr(tool_info, fn_attr)
+                        
+                        # 检查原始函数是否为同步函数
+                        if not asyncio.iscoroutinefunction(original_func):
+                            # 使用工厂函数创建包装器，确保正确捕获函数引用
+                            async_wrapper = self._create_async_wrapper(original_func, tool_name)
+                            
+                            # 替换原始函数
+                            setattr(tool_info, fn_attr, async_wrapper)
+                            wrapped_count += 1
+                            logger.debug(f"已包装同步工具: {tool_name}")
                     
                     if wrapped_count > 0:
                         print(f"✓ 已包装 {wrapped_count} 个同步工具为异步执行", file=sys.stderr)
@@ -301,11 +352,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 强制修正 Accept 头部 (解决 406 问题)
+app.add_middleware(ForceAcceptHeaderMiddleware)
+
+# 添加请求日志中间件 (用于调试)
+app.add_middleware(RequestLoggingMiddleware)
+
 # 添加连接保持活跃中间件
 app.add_middleware(ConnectionKeepAliveMiddleware)
 
-# 添加全局异常处理中间件（最后添加，最先执行，确保捕获所有异常）
-# 注意：在 Starlette 中，中间件按 LIFO 顺序执行（最后添加的最先执行）
+# 添加全局异常处理中间件
 app.add_middleware(ExceptionHandlerMiddleware)
 
 

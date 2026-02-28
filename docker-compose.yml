@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  # ── 独立数据服务 ──
+  data-service:
+    build:
+      context: .
+      dockerfile: data_service/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - data-volume:/app/data
+    environment:
+      - DATA_SERVICE_DB_PATH=/app/data/cache.db
+      - DATA_SERVICE_PORT=8001
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── MCP Server（使用远程数据服务） ──
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - USE_DATA_SERVICE=true
+      - DATA_SERVICE_URL=http://data-service:8001
+    depends_on:
+      data-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  data-volume:
+    driver: local
