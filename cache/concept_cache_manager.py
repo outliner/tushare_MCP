@@ -23,7 +23,7 @@ class ConceptCacheManager:
     def __init__(self, db_path: Path = CACHE_DB):
         """初始化概念板块缓存管理器"""
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         # 启用WAL模式提升并发性能
         self.conn.execute('PRAGMA journal_mode=WAL')
         self._init_database()

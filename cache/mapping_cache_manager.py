@@ -20,12 +20,9 @@ class MappingCacheManager:
     def __init__(self, db_path: Path = CACHE_DB):
         """初始化映射缓存管理器"""
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        try:
-            self.conn.execute('PRAGMA journal_mode=DELETE')
-            self.conn.execute('PRAGMA synchronous=OFF')
-        except Exception:
-            pass
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+        # 统一使用 WAL 模式（与其他 cache manager 一致）
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self._init_database()
     
     def _init_database(self):

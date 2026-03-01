@@ -25,6 +25,7 @@ Tushare MCP服务器 - Streamable HTTP 模式
 """
 import os
 import sys
+import io
 import traceback
 import logging
 import asyncio
@@ -32,6 +33,13 @@ import functools
 from pathlib import Path
 from typing import Callable
 from concurrent.futures import ThreadPoolExecutor
+
+# 修复 Windows 终端中文乱码问题
+# 即使 bat 脚本设置了 chcp 65001 和 PYTHONIOENCODING，
+# Python 的 stderr 仍可能使用系统默认编码（GBK）
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 import tushare as ts
 from starlette.responses import JSONResponse, Response, StreamingResponse
@@ -59,7 +67,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 创建线程池用于执行同步工具调用，避免阻塞事件循环
-_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="mcp_tool")
+_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="mcp_tool")
 
 
 class ConnectionKeepAliveMiddleware(BaseHTTPMiddleware):
@@ -198,11 +206,16 @@ class TushareMCPServer:
             try:
                 # 在线程池中执行同步函数，避免阻塞事件循环
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
+                future = loop.run_in_executor(
                     _executor,
                     lambda: original_func(*args, **kwargs)
                 )
+                # 设置 300 秒超时，防止工具调用无限阻塞线程池
+                result = await asyncio.wait_for(future, timeout=300)
                 return result
+            except asyncio.TimeoutError:
+                logger.error(f"工具 {tool_name} 执行超时（300秒）")
+                raise TimeoutError(f"工具 {tool_name} 执行超时，请稍后重试")
             except Exception as e:
                 logger.error(f"工具 {tool_name} 执行出错: {str(e)}", exc_info=True)
                 raise
