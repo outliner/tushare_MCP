@@ -191,9 +191,52 @@ class MappingCacheManagerClient(_BaseClient):
             return pd.DataFrame(result["data"])
         return pd.DataFrame()
 
+    def get_all_mapping(self) -> pd.DataFrame:
+        result = self._get(f"/api/mapping/all/list")
+        if result.get("success") and result.get("data"):
+            return pd.DataFrame(result["data"])
+        return pd.DataFrame()
+
     def get_mapping_count(self) -> int:
         result = self._get("/api/mapping/count/all")
         return result.get("count", 0)
+
+
+# ============================================================
+# StockIntradayCacheManager 客户端
+# ============================================================
+
+class StockIntradayCacheManagerClient(_BaseClient):
+    """替代 StockIntradayCacheManager，接口完全一致"""
+
+    def save_intraday_snapshot(self, df: pd.DataFrame, current_time_str: str = None) -> int:
+        if df.empty:
+            return 0
+        records = json.loads(df.to_json(orient='records', force_ascii=False, default_handler=str))
+        params = {}
+        if current_time_str:
+            params['current_time_str'] = current_time_str
+        result = self._post("/api/stock/intraday" + (f"?current_time_str={current_time_str}" if current_time_str else ""), {"data": records})
+        return result.get("count", 0)
+
+    def get_historical_snapshot(self, ts_code: str, trade_date: str, trade_time: str) -> Optional[Dict]:
+        result = self._get("/api/stock/intraday/historical_snapshot", {
+            "ts_code": ts_code,
+            "trade_date": trade_date,
+            "trade_time": trade_time
+        })
+        if result.get("success") and result.get("data"):
+            return result["data"][0]
+        return None
+
+    def get_all_snapshots_for_time(self, trade_date: str, trade_time: str) -> pd.DataFrame:
+        result = self._get("/api/stock/intraday/all_snapshots_for_time", {
+            "trade_date": trade_date,
+            "trade_time": trade_time
+        })
+        if result.get("success") and result.get("data"):
+            return pd.DataFrame(result["data"])
+        return pd.DataFrame()
 
 
 # ============================================================
@@ -234,3 +277,4 @@ cache_manager = CacheManagerClient()
 stock_daily_cache_manager = StockDailyCacheManagerClient()
 mapping_cache_manager = MappingCacheManagerClient()
 sector_strength_cache_manager = SectorStrengthCacheManagerClient()
+stock_intraday_cache_manager = StockIntradayCacheManagerClient()

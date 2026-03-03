@@ -12,6 +12,11 @@ import sys
 import io
 from pathlib import Path
 
+# 加载环境变量
+from dotenv import load_dotenv
+ENV_PATH = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
+
 # Force UTF-8 for stdout/stderr to handle emojis on Windows
 if sys.platform == 'win32':
     if isinstance(sys.stdout, io.TextIOWrapper):

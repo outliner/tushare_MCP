@@ -19,6 +19,8 @@ if _use_data_service:
         mapping_cache_manager,
         SectorStrengthCacheManagerClient as SectorStrengthCacheManager,
         sector_strength_cache_manager,
+        StockIntradayCacheManagerClient as StockIntradayCacheManager,
+        stock_intraday_cache_manager,
     )
     # 以下管理器暂未适配远程模式，仍使用本地 SQLite
     from cache.index_cache_manager import IndexCacheManager, index_cache_manager

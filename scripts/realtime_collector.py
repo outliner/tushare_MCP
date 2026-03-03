@@ -11,13 +11,18 @@ import tushare as ts
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
+# 加载环境变量
+from dotenv import load_dotenv
+ENV_PATH = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
+
 # 将项目根目录加入 sys.path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.token_manager import get_tushare_token
-from cache.stock_daily_cache_manager import stock_daily_cache_manager
-from cache.stock_intraday_cache_manager import stock_intraday_cache_manager
+from cache import stock_daily_cache_manager
+from cache import stock_intraday_cache_manager
 
 def is_market_open():
     """判断当前是否在交易时间内"""

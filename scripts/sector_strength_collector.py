@@ -13,14 +13,17 @@ import tushare as ts
 from datetime import datetime, time as dt_time
 from pathlib import Path
 
+# 加载环境变量
+from dotenv import load_dotenv
+ENV_PATH = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
+
 # 将项目根目录加入 sys.path
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.token_manager import get_tushare_token
-from cache.mapping_cache_manager import mapping_cache_manager
-from cache.stock_intraday_cache_manager import stock_intraday_cache_manager
-from cache.sector_strength_cache_manager import sector_strength_cache_manager
+from cache import mapping_cache_manager, stock_intraday_cache_manager, sector_strength_cache_manager, stock_daily_cache_manager
 
 def is_market_open():
     """判断当前是否在交易时间内"""
@@ -80,16 +83,23 @@ def run_sector_strength_analysis():
             df_rt['pct_chg'] = (df_rt['close'] - df_rt['pre_close']) / df_rt['pre_close'] * 100
         
         # 2. 加载映射关系
-        db_conn = mapping_cache_manager.conn
-        df_mapping = pd.read_sql_query("SELECT * FROM stock_sector_mapping", db_conn)
-        
+        df_mapping = mapping_cache_manager.get_all_mapping()
+        if df_mapping.empty:
+            print("⚠️ 未加载到任何板块映射数据，请检查 mapping 缓存是否已初始化", file=sys.stderr)
+            return
+            
         # 3. 确定历史基准日期 (昨日最近的一天)
-        # 注意：这里假设 stock_daily_data 已经由 realtime_collector.py 填充
-        # 如果需要分时量比，可以用 stock_intraday_data
-        cursor = db_conn.cursor()
-        cursor.execute("SELECT MAX(trade_date) FROM stock_daily_data WHERE trade_date < ?", (trade_date,))
-        last_date_row = cursor.fetchone()
-        hist_date = last_date_row[0] if last_date_row and last_date_row[0] else None
+        # 获取最新的 stock_daily_data 日期作为基准日 (如果能获取到的话)
+        daily_stats = stock_daily_cache_manager.get_stats()
+        hist_date = None
+        if daily_stats and 'total' in daily_stats and daily_stats['total'].get('total_records', 0) > 0:
+            # 临时简化处理: 获取上一个工作日
+            import datetime as dt
+            today = dt.date.today()
+            offset = max(1, (today.weekday() + 6) % 7 - 3)
+            timedelta = dt.timedelta(offset)
+            prev_trade = today - timedelta
+            hist_date = prev_trade.strftime("%Y%m%d")
         
         # 4. 统计逻辑 (按板块聚合)
         # 我们在这里计算：

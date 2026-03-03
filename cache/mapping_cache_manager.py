@@ -146,6 +146,16 @@ class MappingCacheManager:
         columns = [column[0] for column in cursor.description]
         return pd.DataFrame(rows, columns=columns)
 
+    def get_all_mapping(self) -> pd.DataFrame:
+        """获取所有映射数据的DataFrame形式"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM stock_sector_mapping")
+        rows = cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        columns = [column[0] for column in cursor.description]
+        return pd.DataFrame(rows, columns=columns)
+
     def get_mapping_count(self) -> int:
         """获取映射数据总数，用于检查是否已初始化"""
         cursor = self.conn.cursor()

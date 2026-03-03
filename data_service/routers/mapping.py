@@ -106,6 +106,20 @@ def save_mapping(request: MappingSaveRequest):
     return MappingResponse(success=True, count=saved)
 
 
+@router.get("/all/list")
+def get_all_mapping():
+    """获取所有映射数据的列表"""
+    conn = db_manager.get_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM stock_sector_mapping')
+    rows = cursor.fetchall()
+    if not rows:
+        return StockDataResponse(success=True, data=[], count=0)
+    columns = [col[0] for col in cursor.description]
+    data = [dict(zip(columns, r)) for r in rows]
+    return StockDataResponse(success=True, data=data, count=len(data))
+
+
 @router.get("/count/all")
 def get_mapping_count():
     """获取映射数据总数"""

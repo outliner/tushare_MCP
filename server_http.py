@@ -34,6 +34,11 @@ from pathlib import Path
 from typing import Callable
 from concurrent.futures import ThreadPoolExecutor
 
+# 加载环境变量
+from dotenv import load_dotenv
+ENV_PATH = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
+
 # 修复 Windows 终端中文乱码问题
 # 即使 bat 脚本设置了 chcp 65001 和 PYTHONIOENCODING，
 # Python 的 stderr 仍可能使用系统默认编码（GBK）

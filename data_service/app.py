@@ -53,24 +53,27 @@ def _init_all_tables():
     from data_service.routers.stock_daily import _init_stock_daily_table
     from data_service.routers.mapping import _init_mapping_table
     from data_service.routers.sector_strength import _init_sector_strength_table
+    from data_service.routers.stock_intraday import _init_stock_intraday_table
 
     _init_cache_table()
     _init_stock_daily_table()
     _init_mapping_table()
     _init_sector_strength_table()
+    _init_stock_intraday_table()
 
     logger.info("✓ 所有数据库表初始化完成")
 
 
 def _register_routers():
     """注册所有路由"""
-    from data_service.routers import health, cache, stock_daily, mapping, sector_strength
+    from data_service.routers import health, cache, stock_daily, mapping, sector_strength, stock_intraday
 
     app.include_router(health.router)
     app.include_router(cache.router)
     app.include_router(stock_daily.router)
     app.include_router(mapping.router)
     app.include_router(sector_strength.router)
+    app.include_router(stock_intraday.router)
 
     logger.info("✓ 所有 API 路由注册完成")
 
