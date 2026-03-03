@@ -13,7 +13,7 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.token_manager import get_tushare_token
-from cache.mapping_cache_manager import mapping_cache_manager
+from cache import mapping_cache_manager
 from tools.concept_tools import get_dc_board_codes
 
 def collect_stock_sector_mapping():

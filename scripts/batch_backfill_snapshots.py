@@ -8,7 +8,6 @@
 """
 import os
 import sys
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 
@@ -20,7 +19,6 @@ sys.path.append(str(project_root))
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
-from config.settings import CACHE_DB
 from scripts.sector_strength_backfill import run_sector_strength_backfill
 
 
@@ -43,55 +41,31 @@ TRADING_TIME_POINTS = [
 
 def get_available_dates(start_date: str, end_date: str) -> list:
     """
-    从数据库获取指定日期范围内有分时数据的交易日列表
-    
-    参数:
-        start_date: 开始日期 (YYYYMMDD)
-        end_date: 结束日期 (YYYYMMDD)
-    
-    返回:
-        有效交易日列表
+    由于通过 CacheManager 代理未暴露直接查询 DISTINCT 日期的 API，
+    本回测脚本暂时假定传入的日期区间连续，
+    或通过调用 daily_basic API 来推算实际交易日。
+    简化起见：直接生成连续日期数组，让后续流程在查不到数据时自然跳过。
     """
-    conn = sqlite3.connect(CACHE_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT DISTINCT trade_date 
-        FROM stock_intraday_data 
-        WHERE trade_date >= ? AND trade_date <= ?
-        ORDER BY trade_date
-    """, (start_date, end_date))
-    
-    dates = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    
+    from datetime import timedelta
+    dates = []
+    curr = datetime.strptime(start_date, "%Y%m%d")
+    end = datetime.strptime(end_date, "%Y%m%d")
+    while curr <= end:
+        if curr.weekday() < 5: # 跳过周末
+            dates.append(curr.strftime("%Y%m%d"))
+        curr += timedelta(days=1)
     return dates
 
 
 def get_available_times_for_date(trade_date: str) -> list:
     """
-    获取指定日期在数据库中实际存在的时间点
-    
-    参数:
-        trade_date: 交易日期 (YYYYMMDD)
-    
-    返回:
-        有效时间点列表
+    由于远程代理不再暴露查表级别 API，
+    我们直接返回标准交易时间点列表。
+    内部 backfill 遇到无数据的时刻会自行跳过/失败处理。
     """
-    conn = sqlite3.connect(CACHE_DB)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT DISTINCT trade_time 
-        FROM stock_intraday_data 
-        WHERE trade_date = ?
-        ORDER BY trade_time
-    """, (trade_date,))
-    
-    times = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    
-    return times
+    # 过滤掉不存在快照的逻辑原本是为了加速，
+    # 现在直接复用全局 TRADING_TIME_POINTS
+    return TRADING_TIME_POINTS
 
 
 def run_batch_backfill(start_date: str, end_date: str, skip_existing: bool = True):

@@ -2,7 +2,6 @@ import os
 import sys
 import pandas as pd
 import pyarrow.parquet as pq
-import sqlite3
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -12,7 +11,7 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from config.settings import CACHE_DB
-from cache.stock_intraday_cache_manager import stock_intraday_cache_manager
+from cache import stock_intraday_cache_manager
 
 def convert_time(t_int):
     """Convert int time (HHMM or HMM) to HH:MM:00"""
@@ -34,16 +33,22 @@ def backfill_date(target_date):
         return
 
     print(f"Loaded {len(df)} records. Mapping codes...")
+    # 1. Build Code Mapping
     
-    # 1. Build Code Mapping from cache.db
-    conn = sqlite3.connect(CACHE_DB)
-    mapping_df = pd.read_sql_query("SELECT ts_code FROM stock_sector_mapping", conn)
-    conn.close()
+    # ======== 获取待补的数据列表 ===============================
+    # 优先从 mapping_cache_manager 获取
+    from cache import mapping_cache_manager
+    mapping_df = mapping_cache_manager.get_all_mapping()
+    
+    if mapping_df.empty or 'ts_code' not in mapping_df.columns:
+        print("警告: 从 stock_sector_mapping 中未找到任何股票记录，回移可能会为空。")
+        return
+        
+    target_stocks = mapping_df['ts_code'].tolist()
     
     # Create numeric to ts_code map
     # ts_code is like 000001.SZ
-    mapping_df['numeric'] = mapping_df['ts_code'].apply(lambda x: int(x.split('.')[0]))
-    code_map = dict(zip(mapping_df['numeric'], mapping_df['ts_code']))
+    code_map = {int(ts_code.split('.')[0]): ts_code for ts_code in target_stocks}
     
     # 2. Map SecuCode to ts_code
     df['ts_code'] = df['SecuCode'].map(code_map)
@@ -100,49 +105,32 @@ def backfill_date(target_date):
     }
     df_upload = df.rename(columns=rename_map)
     
-    print(f"Persisting data to {CACHE_DB}...")
+    print(f"Persisting data via stock_intraday_cache_manager...")
     
     row_count = len(df_upload)
     print(f"Starting batch save for {row_count} rows...")
     
-    # Optimized batch insertion
+    # 使用 cache manager 代理保存 (兼容远程/本地模式)
     try:
-        conn = sqlite3.connect(CACHE_DB)
-        # Use INSERT OR IGNORE
-        # We need to add created_at
-        df_upload['created_at'] = datetime.now().timestamp()
-        
-        # Select only required columns in correct order for safety
-        cols = [
-            'ts_code', 'trade_date', 'trade_time', 'open', 'close', 'high', 'low',
-            'vol', 'amount', 'num', 'bid_price1', 'bid_volume1', 'ask_price1', 'ask_volume1', 'created_at'
-        ]
-        
-        # Ensure 'num' is integer
-        df_upload['num'] = df_upload['num'].fillna(0).astype(int)
-        
-        # Let's use manual executemany for strict control
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        
-        data_to_insert = df_upload[cols].values.tolist()
-        
-        query = '''
-            INSERT OR IGNORE INTO stock_intraday_data (
-                ts_code, trade_date, trade_time, open, close, high, low,
-                vol, amount, num, bid_price1, bid_volume1, ask_price1, ask_volume1, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        '''
-        
-        # Chunked insertion to avoid memory issues
-        batch_size = 50000
-        for i in range(0, len(data_to_insert), batch_size):
-            cursor.executemany(query, data_to_insert[i:i+batch_size])
-            conn.commit()
-            print(f"  Processed {min(i+batch_size, len(data_to_insert))}/{len(data_to_insert)}")
+        # 按 trade_time 分组，逐时间点保存
+        time_groups = df_upload.groupby('trade_time')
+        total_saved = 0
+        for trade_time_val, group_df in time_groups:
+            # 只选取 cache manager 需要的列
+            cols_to_save = [
+                'ts_code', 'trade_date', 'open', 'close', 'high', 'low',
+                'vol', 'amount', 'num', 'bid_price1', 'bid_volume1',
+                'ask_price1', 'ask_volume1'
+            ]
+            available_cols = [c for c in cols_to_save if c in group_df.columns]
+            save_df = group_df[available_cols].copy()
             
-        conn.close()
-        print(f"Backfill for {target_date} completed successfully.")
+            saved = stock_intraday_cache_manager.save_intraday_snapshot(
+                save_df, current_time_str=trade_time_val
+            )
+            total_saved += saved
+        
+        print(f"Backfill for {target_date} completed successfully. Saved {total_saved} rows.")
         
     except Exception as e:
         print(f"Error during persistence: {e}")

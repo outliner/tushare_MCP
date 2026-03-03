@@ -11,7 +11,6 @@
 import os
 import sys
 import pandas as pd
-import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -25,10 +24,7 @@ if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
 
 from config.token_manager import get_tushare_token
-from cache.mapping_cache_manager import mapping_cache_manager
-from cache.stock_intraday_cache_manager import stock_intraday_cache_manager
-from cache.sector_strength_cache_manager import sector_strength_cache_manager
-from config.settings import CACHE_DB
+from cache import mapping_cache_manager, stock_intraday_cache_manager, sector_strength_cache_manager
 
 
 def get_previous_trading_date(trade_date: str) -> str:
@@ -60,78 +56,45 @@ def run_sector_strength_backfill(target_date: str = None, target_time: str = "15
     print(f"========================================", file=sys.stderr)
     
     try:
-        # 连接数据库
-        conn = sqlite3.connect(CACHE_DB)
-        
         # 1. 从 stock_intraday_data 表获取指定时间点的快照数据
         print(f"🚀 正在读取 {trade_date} {trade_time} 的分时快照数据...", file=sys.stderr)
         
-        # 查询指定日期、最接近目标时间的快照，包含增强字段
-        # 注意：对于旧数据，新字段可能为 NULL
-        query_intraday = """
-            SELECT ts_code, trade_date, trade_time, open, close, high, low, vol, amount, num, bid_volume1, ask_volume1
-            FROM stock_intraday_data 
-            WHERE trade_date = ? AND trade_time <= ?
-        """
-        df_intraday = pd.read_sql_query(query_intraday, conn, params=(trade_date, trade_time))
+        # 使用 cache manager 获取快照
+        df_intraday = stock_intraday_cache_manager.get_all_snapshots_for_time(trade_date, trade_time)
         
-        if df_intraday.empty:
+        if df_intraday is None or df_intraday.empty:
             print(f"⚠️ 未找到 {trade_date} 的分时快照数据", file=sys.stderr)
-            conn.close()
             return
-        
-        # 每只股票只保留最接近目标时间的一条记录
-        df_intraday = df_intraday.sort_values('trade_time', ascending=False)
-        df_intraday = df_intraday.drop_duplicates(subset='ts_code', keep='first')
-        
+            
         actual_times = df_intraday['trade_time'].unique()
         print(f"📈 读取到 {len(df_intraday)} 只股票的快照数据", file=sys.stderr)
         
         # 2. 获取昨收价 (pre_close) - 多层次回退策略
-        # 策略优先级：前一天分时收盘价 > stock_daily_data 缓存 > Tushare API
-        
         # 2.1 首先尝试从前一天分时数据获取收盘价作为昨收
-        cursor = conn.cursor()
-        cursor.execute("SELECT MAX(trade_date) FROM stock_intraday_data WHERE trade_date < ?", (trade_date,))
-        prev_row = cursor.fetchone()
-        prev_date = prev_row[0] if prev_row and prev_row[0] else get_previous_trading_date(trade_date)
+        # 为了获取前一个交易日，我们可以尝试查询昨日数据，这里简单回退
+        prev_date = get_previous_trading_date(trade_date)
+        print(f"📅 尝试前一交易日: {prev_date}...", file=sys.stderr)
         
-        print(f"📅 前一交易日: {prev_date}", file=sys.stderr)
-        
-        # 从前一天分时数据的最后收盘价获取 pre_close
-        query_prev_intraday = """
-            SELECT ts_code, close as pre_close 
-            FROM stock_intraday_data 
-            WHERE trade_date = ? AND trade_time = '15:00:00'
-        """
-        df_preclose = pd.read_sql_query(query_prev_intraday, conn, params=(prev_date,))
-        
-        # 如果 15:00:00 没有数据，尝试获取最后一个时间点
-        if df_preclose.empty or len(df_preclose) < 100:
-            print(f"   ⚠️ 15:00 数据不足，尝试获取最后时间点...", file=sys.stderr)
-            query_prev_last = """
-                SELECT ts_code, close as pre_close 
-                FROM stock_intraday_data 
-                WHERE trade_date = ? AND trade_time = (
-                    SELECT MAX(trade_time) FROM stock_intraday_data WHERE trade_date = ?
-                )
-            """
-            df_preclose = pd.read_sql_query(query_prev_last, conn, params=(prev_date, prev_date))
-        
+        df_preclose = stock_intraday_cache_manager.get_all_snapshots_for_time(prev_date, '15:00:00')
+        if df_preclose is not None and not df_preclose.empty:
+            # 只取 code 和 close
+            df_preclose = df_preclose[['ts_code', 'close']].rename(columns={'close': 'pre_close'})
+        else:
+            df_preclose = pd.DataFrame(columns=['ts_code', 'pre_close'])
+            
         preclose_count = len(df_preclose)
         print(f"   从分时数据获取到 {preclose_count} 条昨收价", file=sys.stderr)
         
         # 2.2 如果分时数据不足，尝试从 stock_daily_data 补充
         if preclose_count < len(df_intraday) * 0.5:
             print(f"   ⚠️ 分时昨收覆盖不足，尝试从日线缓存补充...", file=sys.stderr)
-            query_daily_preclose = """
-                SELECT ts_code, pre_close 
-                FROM stock_daily_data 
-                WHERE trade_date = ?
-            """
-            df_daily_preclose = pd.read_sql_query(query_daily_preclose, conn, params=(trade_date,))
+            from cache import stock_daily_cache_manager
             
-            if not df_daily_preclose.empty:
+            df_daily_preclose = stock_daily_cache_manager.get_stock_daily_data(trade_date=trade_date)
+            
+            if df_daily_preclose is not None and not df_daily_preclose.empty:
+                df_daily_preclose = df_daily_preclose[['ts_code', 'pre_close']]
+                
                 # 合并：分时数据优先，日线数据补充
                 if df_preclose.empty:
                     df_preclose = df_daily_preclose
@@ -149,7 +112,7 @@ def run_sector_strength_backfill(target_date: str = None, target_time: str = "15
         if len(df_preclose) < len(df_intraday) * 0.5:
             print(f"   ⚠️ 昨收数据仍不足，尝试从 Tushare API 获取...", file=sys.stderr)
             try:
-                from cache.stock_daily_cache_manager import stock_daily_cache_manager
+                from cache import stock_daily_cache_manager
                 import tushare as ts
                 from config.token_manager import get_tushare_token
                 
@@ -178,14 +141,19 @@ def run_sector_strength_backfill(target_date: str = None, target_time: str = "15
                 print(f"   ❌ API 获取失败: {str(e)[:50]}", file=sys.stderr)
         
         # 2.4 获取日线辅助数据 (用于补全快照中缺失的 high/low/num 等)
-        query_daily_aux = """
-            SELECT ts_code, open as day_open, high as day_high, low as day_low, num as day_num, 
-                   bid_volume1 as day_bid_vol, ask_volume1 as day_ask_vol
-            FROM stock_daily_data 
-            WHERE trade_date = ?
-        """
-        df_daily_aux = pd.read_sql_query(query_daily_aux, conn, params=(trade_date,))
+        # 这里已经在 2.2 查过 df_daily_preclose, 但我们需要更多字段
+        from cache import stock_daily_cache_manager
+        df_daily_aux = stock_daily_cache_manager.get_stock_daily_data(trade_date=trade_date)
         
+        if df_daily_aux is not None and not df_daily_aux.empty:
+            df_daily_aux = df_daily_aux[['ts_code', 'open', 'high', 'low', 'num', 'bid_volume1', 'ask_volume1']]
+            df_daily_aux = df_daily_aux.rename(columns={
+                'open': 'day_open', 'high': 'day_high', 'low': 'day_low', 
+                'num': 'day_num', 'bid_volume1': 'day_bid_vol', 'ask_volume1': 'day_ask_vol'
+            })
+        else:
+            df_daily_aux = pd.DataFrame(columns=['ts_code', 'day_open', 'day_high', 'day_low', 'day_num', 'day_bid_vol', 'day_ask_vol'])
+            
         # 合并昨收价到 df_daily（用于后续合并）
         if not df_preclose.empty:
             if df_daily_aux.empty:
@@ -218,25 +186,24 @@ def run_sector_strength_backfill(target_date: str = None, target_time: str = "15
         df_rt = df_rt.set_index('ts_code')
         
         # 4. 加载映射关系
-        df_mapping = pd.read_sql_query("SELECT * FROM stock_sector_mapping", conn)
-        print(f"📋 加载 {len(df_mapping)} 条股票-行业映射", file=sys.stderr)
+        from cache import mapping_cache_manager
+        df_mapping = mapping_cache_manager.get_all_mapping()
+        if df_mapping.empty:
+            df_mapping = pd.DataFrame(columns=['ts_code', 'sw_l2_name', 'em_industry_name'])
+        else:
+            print(f"📋 加载 {len(df_mapping)} 条股票-行业映射", file=sys.stderr)
         
         # 5. 获取历史基准量比数据
-        cursor = conn.cursor()
-        cursor.execute("SELECT MAX(trade_date) FROM stock_intraday_data WHERE trade_date < ?", (trade_date,))
-        last_date_row = cursor.fetchone()
-        hist_date = last_date_row[0] if last_date_row and last_date_row[0] else None
-        
+        # 利用刚刚拿到的 prev_date
+        hist_date = prev_date
         hist_amt_map = {}
         if hist_date:
             print(f"📅 历史基准日期: {hist_date}", file=sys.stderr)
-            query_hist = "SELECT ts_code, trade_time, amount FROM stock_intraday_data WHERE trade_date = ? AND trade_time <= ?"
-            df_hist = pd.read_sql_query(query_hist, conn, params=(hist_date, trade_time))
-            if not df_hist.empty:
+            df_hist = stock_intraday_cache_manager.get_all_snapshots_for_time(hist_date, trade_time)
+            
+            if df_hist is not None and not df_hist.empty:
                 df_hist = df_hist.sort_values('trade_time', ascending=False).drop_duplicates('ts_code')
                 hist_amt_map = dict(zip(df_hist['ts_code'], df_hist['amount']))
-        
-        conn.close()
         
         # 6. 统计逻辑 (按板块聚合)
         df_combined = df_mapping.merge(df_rt, left_on='ts_code', right_index=True)
@@ -246,6 +213,10 @@ def run_sector_strength_backfill(target_date: str = None, target_time: str = "15
         for sector_type_key, sector_name_col in [('sw_l2', 'sw_l2_name'), ('em_industry', 'em_industry_name')]:
             print(f"   正在分析 {sector_type_key} 维度...", file=sys.stderr)
             
+            # 由于可能缺少列导致 KeyError, 这里做一个保护
+            if sector_name_col not in df_combined.columns:
+                continue
+                
             for name, group in df_combined.groupby(sector_name_col):
                 if not name or group.empty: continue
                 
@@ -271,8 +242,11 @@ def run_sector_strength_backfill(target_date: str = None, target_time: str = "15
                 value_per_trade = (amt_now * 1000) / sum_num if sum_num > 0 else 0
                 
                 # 盘口
-                bid_sum = pd.to_numeric(group['bid_volume1'], errors='coerce').fillna(0).sum()
-                ask_sum = pd.to_numeric(group['ask_volume1'], errors='coerce').fillna(0).sum()
+                # 若缺少买卖盘口数据则兼容
+                bid_tmp = group['bid_volume1'] if 'bid_volume1' in group.columns else pd.Series(0, index=group.index)
+                ask_tmp = group['ask_volume1'] if 'ask_volume1' in group.columns else pd.Series(0, index=group.index)
+                bid_sum = pd.to_numeric(bid_tmp, errors='coerce').fillna(0).sum()
+                ask_sum = pd.to_numeric(ask_tmp, errors='coerce').fillna(0).sum()
                 order_imbalance = (bid_sum - ask_sum) / (bid_sum + ask_sum) * 100 if (bid_sum + ask_sum) > 0 else 0
                 
                 # ========== 评分（归一化 + 多维度均衡加权）==========
