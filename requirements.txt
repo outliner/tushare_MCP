@@ -1,10 +1,16 @@
+# MCP 核心
 mcp>=0.1.0
 tushare>=1.4.0
 python-dotenv>=0.19.0
 pandas>=1.5.0
-# HTTP SSE 模式依赖
+
+# HTTP / Web 框架
+fastapi>=0.100.0
 starlette>=0.27.0
 uvicorn>=0.23.0
 httpx>=0.24.0
-# 定时任务依赖
+pydantic>=2.0.0
+python-multipart>=0.0.5
+
+# 定时任务
 schedule>=1.2.0

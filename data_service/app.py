@@ -5,7 +5,7 @@ Tushare MCP Data Service — FastAPI 主入口
 启动方式：
     python -m data_service.app
     或：
-    uvicorn data_service.app:app --host 0.0.0.0 --port 8001
+    uvicorn data_service.app:app --host 0.0.0.0 --port 8002
 """
 import sys
 import io

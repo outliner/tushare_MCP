@@ -12,7 +12,7 @@ DATA_SERVICE_DB_PATH = Path(
 DATA_SERVICE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # 服务端口
-DATA_SERVICE_PORT = int(os.getenv("DATA_SERVICE_PORT", "8001"))
+DATA_SERVICE_PORT = int(os.getenv("DATA_SERVICE_PORT", "8002"))
 
 # 服务主机
 DATA_SERVICE_HOST = os.getenv("DATA_SERVICE_HOST", "0.0.0.0")

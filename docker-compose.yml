@@ -7,15 +7,15 @@ services:
       context: .
       dockerfile: data_service/Dockerfile
     ports:
-      - "8001:8001"
+      - "8002:8002"
     volumes:
       - data-volume:/app/data
     environment:
       - DATA_SERVICE_DB_PATH=/app/data/cache.db
-      - DATA_SERVICE_PORT=8001
+      - DATA_SERVICE_PORT=8002
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8002/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -30,7 +30,7 @@ services:
     environment:
       - TUSHARE_TOKEN=${TUSHARE_TOKEN}
       - USE_DATA_SERVICE=true
-      - DATA_SERVICE_URL=http://data-service:8001
+      - DATA_SERVICE_URL=http://data-service:8002
     depends_on:
       data-service:
         condition: service_healthy

@@ -17,7 +17,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # 数据服务基地址
-DATA_SERVICE_URL = os.getenv("DATA_SERVICE_URL", "http://localhost:8001")
+DATA_SERVICE_URL = os.getenv("DATA_SERVICE_URL", "http://localhost:8002")
 
 
 # 共享 HTTP 客户端实例，避免重复创建连接池和初始化 SSL
